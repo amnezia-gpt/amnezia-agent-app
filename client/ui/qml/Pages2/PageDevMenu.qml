@@ -90,6 +90,61 @@ PageType {
         footer: ColumnLayout {
             width: listView.width
 
+            ParagraphTextType {
+                Layout.fillWidth: true
+                Layout.margins: 16
+                text: qsTr("Agent workload environment (new installations)")
+            }
+
+            ComboBox {
+                Layout.fillWidth: true
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                model: ["local", "dev"]
+                currentIndex: model.indexOf(SettingsController.agentWorkloadEnvironment)
+                onActivated: SettingsController.agentWorkloadEnvironment = currentText
+            }
+
+            ParagraphTextType {
+                Layout.fillWidth: true
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                text: qsTr("Local uses the local backend through its public tunnel. Existing deployments keep their saved environment.")
+            }
+
+            TextFieldWithHeaderType {
+                id: localAuthField
+                visible: SettingsController.agentWorkloadEnvironment === "local"
+                Layout.fillWidth: true
+                Layout.margins: 16
+                headerText: qsTr("Local Auth issuer (HTTPS)")
+                textField.text: SettingsController.localAgentBackendProfile.authIssuer || ""
+            }
+
+            TextFieldWithHeaderType {
+                id: localRouterField
+                visible: SettingsController.agentWorkloadEnvironment === "local"
+                Layout.fillWidth: true
+                Layout.margins: 16
+                headerText: qsTr("Local Router base URL (HTTPS, /v1)")
+                textField.text: SettingsController.localAgentBackendProfile.routerBaseUrl || ""
+            }
+
+            BasicButtonType {
+                visible: SettingsController.agentWorkloadEnvironment === "local"
+                Layout.fillWidth: true
+                Layout.margins: 16
+                text: qsTr("Save local backend")
+                clickedFunc: function() {
+                    if (!SettingsController.saveLocalAgentBackendProfile(localAuthField.textField.text,
+                                                                         localRouterField.textField.text)) {
+                        PageController.showNotificationMessage(qsTr("Enter both valid HTTPS endpoints without credentials, query or fragment; Router must end in /v1."))
+                        return
+                    }
+                    PageController.showNotificationMessage(qsTr("Settings saved"))
+                }
+            }
+
             SwitcherType {
                 Layout.fillWidth: true
                 Layout.topMargin: 24

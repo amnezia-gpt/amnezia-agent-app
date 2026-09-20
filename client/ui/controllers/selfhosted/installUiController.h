@@ -4,57 +4,49 @@
 #include <QObject>
 #include <QProcess>
 
-#include "core/utils/containerEnum.h"
-#include "core/utils/containers/containerUtils.h"
-#include "core/utils/protocolEnum.h"
+#include "core/controllers/connectionController.h"
+#include "core/controllers/selfhosted/installController.h"
+#include "core/controllers/selfhosted/usersController.h"
 #include "core/controllers/serversController.h"
 #include "core/controllers/settingsController.h"
-#include "core/controllers/connectionController.h"
-#include "core/controllers/selfhosted/usersController.h"
-#include "core/controllers/selfhosted/installController.h"
-#include "core/utils/errorCodes.h"
-#include "core/utils/routeModes.h"
-#include "core/utils/commonStructs.h"
 #include "core/models/containerConfig.h"
-#include "ui/models/protocolsModel.h"
+#include "core/utils/commonStructs.h"
+#include "core/utils/containerEnum.h"
+#include "core/utils/containers/containerUtils.h"
+#include "core/utils/errorCodes.h"
+#include "core/utils/protocolEnum.h"
+#include "core/utils/routeModes.h"
 #include "ui/models/protocols/awgConfigModel.h"
-#include "ui/models/protocols/wireguardConfigModel.h"
 #include "ui/models/protocols/openvpnConfigModel.h"
+#include "ui/models/protocols/wireguardConfigModel.h"
 #include "ui/models/protocols/xrayConfigModel.h"
+#include "ui/models/protocolsModel.h"
 #ifdef Q_OS_WINDOWS
-#include "ui/models/protocols/ikev2ConfigModel.h"
+    #include "ui/models/protocols/ikev2ConfigModel.h"
 #endif
-#include "ui/models/services/sftpConfigModel.h"
-#include "ui/models/services/socks5ProxyConfigModel.h"
-#include "ui/models/services/torConfigModel.h"
 #include "core/models/protocols/sftpProtocolConfig.h"
 #include "core/models/protocols/socks5ProxyProtocolConfig.h"
 #include "ui/models/services/mtProxyConfigModel.h"
+#include "ui/models/services/sftpConfigModel.h"
+#include "ui/models/services/socks5ProxyConfigModel.h"
 #include "ui/models/services/telemtConfigModel.h"
+#include "ui/models/services/torConfigModel.h"
 
 class InstallUiController : public QObject
 {
     Q_OBJECT
 public:
-    explicit InstallUiController(InstallController* installController,
-                               ServersController* serversController,
-                               SettingsController* settingsController,
-                               ProtocolsModel* protocolsModel,
-                               UsersController* usersController,
-                               AwgConfigModel* awgConfigModel,
-                               WireGuardConfigModel* wireGuardConfigModel,
-                               OpenVpnConfigModel* openVpnConfigModel,
-                               XrayConfigModel* xrayConfigModel,
-                               TorConfigModel* torConfigModel,
+    explicit InstallUiController(InstallController *installController, ServersController *serversController,
+                                 SettingsController *settingsController, ProtocolsModel *protocolsModel,
+                                 UsersController *usersController, AwgConfigModel *awgConfigModel,
+                                 WireGuardConfigModel *wireGuardConfigModel, OpenVpnConfigModel *openVpnConfigModel,
+                                 XrayConfigModel *xrayConfigModel, TorConfigModel *torConfigModel,
 #ifdef Q_OS_WINDOWS
-                               Ikev2ConfigModel* ikev2ConfigModel,
+                                 Ikev2ConfigModel *ikev2ConfigModel,
 #endif
-                               SftpConfigModel* sftpConfigModel,
-                               Socks5ProxyConfigModel* socks5ConfigModel,
-                               MtProxyConfigModel* mtConfigModel,
-                               TelemtConfigModel* telemtConfigModel,
-                               ConnectionController* connectionController,
-                               QObject *parent = nullptr);
+                                 SftpConfigModel *sftpConfigModel, Socks5ProxyConfigModel *socks5ConfigModel,
+                                 MtProxyConfigModel *mtConfigModel, TelemtConfigModel *telemtConfigModel,
+                                 ConnectionController *connectionController, QObject *parent = nullptr);
     ~InstallUiController();
 
 public slots:
@@ -73,6 +65,12 @@ public slots:
     void removeContainer(const QString &serverId, int containerIndex);
     void setContainerEnabled(const QString &serverId, int containerIndex, bool enabled);
     void refreshContainerStatus(const QString &serverId, int containerIndex);
+    void refreshAgentWorkloadState(const QString &serverId, int containerIndex);
+    void reconcileAgentWorkload(const QString &serverId, int containerIndex);
+    void stopAgentWorkload(const QString &serverId, int containerIndex);
+    void startAgentWorkloadLogin(const QString &serverId, int mode);
+    void refreshAgentWorkloadLoginStatus(const QString &serverId, int mode);
+    bool openAgentWorkloadVerificationUrl(const QString &url);
     void refreshContainerDiagnostics(const QString &serverId, int containerIndex, int port);
     void fetchContainerSecret(const QString &serverId, int containerIndex);
 
@@ -100,6 +98,7 @@ public slots:
     int defaultTransportProto(int protocolIndex);
     bool defaultPortChangeable(int protocolIndex);
     bool defaultTransportProtoChangeable(int protocolIndex);
+    Q_INVOKABLE int amgptAuthProxyContainerIndex() const;
 
 signals:
     void installContainerFinished(const QString &finishMessage, bool isServiceInstall);
@@ -115,6 +114,14 @@ signals:
     void removeContainerFinished(const QString &finishedMessage);
     void setContainerEnabledFinished(bool enabled);
     void containerStatusRefreshed(int status, int errorCode);
+    void agentWorkloadStateRefreshed(int action, int reason, const QString &message);
+    void agentWorkloadReconcileFinished(int action, int planReason, int status, int applyReason, int transportError,
+                                        const QString &message);
+    void agentWorkloadLifecycleFinished(int status, int reason, int transportError, const QString &message);
+    void agentWorkloadLoginStarted(int mode, int precondition, int operationError, const QString &verificationUrl,
+                                   const QString &userCode, int expiresInSeconds, const QString &message);
+    void agentWorkloadLoginStatusRefreshed(int mode, int state, bool authenticated, int operationError,
+                                           const QString &message);
     void containerDiagnosticsRefreshed(bool portReachable, bool upstreamReachable, int clientsConnected,
                                        const QString &lastConfigRefresh, const QString &statsEndpoint);
     void containerSecretFetched(const QString &secret);
@@ -136,31 +143,30 @@ signals:
     void configValidated(bool isValid);
 
 private:
+    InstallController *m_installController;
+    ServersController *m_serversController;
+    SettingsController *m_settingsController;
+    ProtocolsModel *m_protocolModel;
+    UsersController *m_usersController;
 
-    InstallController* m_installController;
-    ServersController* m_serversController;
-    SettingsController* m_settingsController;
-    ProtocolsModel* m_protocolModel;
-    UsersController* m_usersController;
-
-    AwgConfigModel* m_awgConfigModel;
-    WireGuardConfigModel* m_wireGuardConfigModel;
-    OpenVpnConfigModel* m_openVpnConfigModel;
-    XrayConfigModel* m_xrayConfigModel;
-    TorConfigModel* m_torConfigModel;
+    AwgConfigModel *m_awgConfigModel;
+    WireGuardConfigModel *m_wireGuardConfigModel;
+    OpenVpnConfigModel *m_openVpnConfigModel;
+    XrayConfigModel *m_xrayConfigModel;
+    TorConfigModel *m_torConfigModel;
 #ifdef Q_OS_WINDOWS
-    Ikev2ConfigModel* m_ikev2ConfigModel;
+    Ikev2ConfigModel *m_ikev2ConfigModel;
 #endif
-    SftpConfigModel* m_sftpConfigModel;
-    Socks5ProxyConfigModel* m_socks5ConfigModel;
-    MtProxyConfigModel* m_mtProxyConfigModel;
-    TelemtConfigModel* m_telemtConfigModel;
-    ConnectionController* m_connectionController;
+    SftpConfigModel *m_sftpConfigModel;
+    Socks5ProxyConfigModel *m_socks5ConfigModel;
+    MtProxyConfigModel *m_mtProxyConfigModel;
+    TelemtConfigModel *m_telemtConfigModel;
+    ConnectionController *m_connectionController;
 
     ServerCredentials m_processedServerCredentials;
 
     QString m_privateKeyPassphrase;
-    
+
     void updateProtocolConfigModel(const QString &serverId, int containerIndex, int protocolIndex);
 
     bool buildContainerConfigFromModel(int containerIndex, int protocolIndex, ContainerConfig &containerConfig);

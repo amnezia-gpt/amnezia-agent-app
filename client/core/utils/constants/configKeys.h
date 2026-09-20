@@ -13,6 +13,9 @@ namespace amnezia
         constexpr QLatin1String password("password");
         constexpr QLatin1String port("port");
         constexpr QLatin1String localPort("local_port");
+        constexpr QLatin1String backendProfile("backend_profile");
+        constexpr QLatin1String authIssuer("auth_issuer");
+        constexpr QLatin1String routerBaseUrl("router_base_url");
 
         constexpr QLatin1String dns1("dns1");
         constexpr QLatin1String dns2("dns2");
@@ -190,9 +193,9 @@ namespace amnezia
         constexpr QLatin1String xhttpMode("xhttp_mode"); // Auto | Packet-up | Stream-up | Stream-one
         constexpr QLatin1String xhttpHost("xhttp_host");
         constexpr QLatin1String xhttpPath("xhttp_path");
-        constexpr QLatin1String xhttpUplinkMethod("xhttp_uplink_method");       // POST | PUT | PATCH
-        constexpr QLatin1String xhttpDisableGrpc("xhttp_disable_grpc");         // bool
-        constexpr QLatin1String xhttpDisableSse("xhttp_disable_sse");           // bool
+        constexpr QLatin1String xhttpUplinkMethod("xhttp_uplink_method"); // POST | PUT | PATCH
+        constexpr QLatin1String xhttpDisableGrpc("xhttp_disable_grpc");   // bool
+        constexpr QLatin1String xhttpDisableSse("xhttp_disable_sse");     // bool
 
         // Transport — XHTTP Session & Sequence
         constexpr QLatin1String xhttpSessionPlacement("xhttp_session_placement"); // Path | Header | Cookie | None

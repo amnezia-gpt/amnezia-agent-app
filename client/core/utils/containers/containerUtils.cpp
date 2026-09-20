@@ -1,8 +1,8 @@
 #include "containerUtils.h"
 
+#include <QJsonDocument>
 #include <QMetaEnum>
 #include <QObject>
-#include <QJsonDocument>
 
 using namespace amnezia;
 
@@ -27,6 +27,10 @@ QString ContainerUtils::containerToString(DockerContainer c)
         return "amnezia-awg";
     if (c == DockerContainer::Awg2)
         return "amnezia-awg2";
+    if (c == DockerContainer::AmgptAuthProxy)
+        return "amnezia-amgpt-auth-proxy";
+    if (c == DockerContainer::OpenClawCodex)
+        return "amnezia-openclaw-codex";
     QMetaEnum metaEnum = QMetaEnum::fromType<DockerContainer>();
     QString containerKey = metaEnum.valueToKey(static_cast<int>(c));
 
@@ -43,6 +47,10 @@ QString ContainerUtils::containerTypeToString(DockerContainer c)
         return "awg";
     if (c == DockerContainer::Awg2)
         return "awg";
+    if (c == DockerContainer::AmgptAuthProxy)
+        return "amgpt-auth-proxy";
+    if (c == DockerContainer::OpenClawCodex)
+        return "openclaw-codex";
     QMetaEnum metaEnum = QMetaEnum::fromType<DockerContainer>();
     QString containerKey = metaEnum.valueToKey(static_cast<int>(c));
 
@@ -62,61 +70,64 @@ QList<DockerContainer> ContainerUtils::allContainers()
 
 QMap<DockerContainer, QString> ContainerUtils::containerHumanNames()
 {
-    return { { DockerContainer::None, "Not installed" },
-             { DockerContainer::OpenVpn, "OpenVPN" },
-             { DockerContainer::ShadowSocks, "OpenVPN over SS" },
-             { DockerContainer::Cloak, "OpenVPN over Cloak" },
-             { DockerContainer::WireGuard, "WireGuard" },
-             { DockerContainer::Awg, "AmneziaWG" },
-             { DockerContainer::Awg2, "AmneziaWG" },
-             { DockerContainer::Xray, "XRay" },
-             { DockerContainer::Ipsec, QObject::tr("IPsec") },
-             { DockerContainer::SSXray, "Shadowsocks"},
+    return {
+        { DockerContainer::None, "Not installed" },
+        { DockerContainer::OpenVpn, "OpenVPN" },
+        { DockerContainer::ShadowSocks, "OpenVPN over SS" },
+        { DockerContainer::Cloak, "OpenVPN over Cloak" },
+        { DockerContainer::WireGuard, "WireGuard" },
+        { DockerContainer::Awg, "AmneziaWG" },
+        { DockerContainer::Awg2, "AmneziaWG" },
+        { DockerContainer::Xray, "XRay" },
+        { DockerContainer::Ipsec, QObject::tr("IPsec") },
+        { DockerContainer::SSXray, "Shadowsocks" },
 
-             { DockerContainer::TorWebSite, QObject::tr("Website in Tor network") },
-             { DockerContainer::Dns, QObject::tr("AmneziaDNS") },
-             { DockerContainer::Sftp, QObject::tr("SFTP file sharing service") },
-             { DockerContainer::Socks5Proxy, QObject::tr("SOCKS5 proxy server") },
-             { DockerContainer::MtProxy, QObject::tr("MTProxy (Telegram)") },
-             { DockerContainer::Telemt, QObject::tr("Telemt (Telegram)") },
+        { DockerContainer::TorWebSite, QObject::tr("Website in Tor network") },
+        { DockerContainer::Dns, QObject::tr("AmneziaDNS") },
+        { DockerContainer::Sftp, QObject::tr("SFTP file sharing service") },
+        { DockerContainer::Socks5Proxy, QObject::tr("SOCKS5 proxy server") },
+        { DockerContainer::MtProxy, QObject::tr("MTProxy (Telegram)") },
+        { DockerContainer::Telemt, QObject::tr("Telemt (Telegram)") },
+        { DockerContainer::AmgptAuthProxy, QObject::tr("AMGPT Auth Proxy") },
+        { DockerContainer::OpenClawCodex, QObject::tr("OpenClaw + Codex") },
     };
 }
 
 QMap<DockerContainer, QString> ContainerUtils::containerDescriptions()
 {
-    return {              { DockerContainer::OpenVpn,
-               QObject::tr("OpenVPN is the most popular VPN protocol, with flexible configuration options. It uses its "
-                           "own security protocol with SSL/TLS for key exchange.") },
-             { DockerContainer::ShadowSocks,
-               QObject::tr("This protocol is no longer supported.") },
-             { DockerContainer::Cloak,
-               QObject::tr("This protocol is no longer supported.") },
-             { DockerContainer::WireGuard,
-               QObject::tr("WireGuard - popular VPN protocol with high performance, high speed and low power "
-                           "consumption.") },
-             { DockerContainer::Awg,
-               QObject::tr("AmneziaWG is a special protocol from Amnezia based on WireGuard. "
-                           "It provides high connection speed and ensures stable operation even in the most challenging network conditions.") },
-             { DockerContainer::Awg2,
-               QObject::tr("AmneziaWG is a special protocol from Amnezia based on WireGuard. "
-                           "It provides high connection speed and ensures stable operation even in the most challenging network conditions.") },
-             { DockerContainer::Xray,
-               QObject::tr("XRay with REALITY masks VPN traffic as web traffic and protects against active probing. "
-                           "It is highly resistant to detection and offers high speed.") },
-             { DockerContainer::Ipsec,
-               QObject::tr("IKEv2/IPsec -  Modern stable protocol, a bit faster than others, restores connection after "
-                           "signal loss. It has native support on the latest versions of Android and iOS.") },
+    return {
+        { DockerContainer::OpenVpn,
+          QObject::tr("OpenVPN is the most popular VPN protocol, with flexible configuration options. It uses its "
+                      "own security protocol with SSL/TLS for key exchange.") },
+        { DockerContainer::ShadowSocks, QObject::tr("This protocol is no longer supported.") },
+        { DockerContainer::Cloak, QObject::tr("This protocol is no longer supported.") },
+        { DockerContainer::WireGuard,
+          QObject::tr("WireGuard - popular VPN protocol with high performance, high speed and low power "
+                      "consumption.") },
+        { DockerContainer::Awg,
+          QObject::tr("AmneziaWG is a special protocol from Amnezia based on WireGuard. "
+                      "It provides high connection speed and ensures stable operation even in the most challenging "
+                      "network conditions.") },
+        { DockerContainer::Awg2,
+          QObject::tr("AmneziaWG is a special protocol from Amnezia based on WireGuard. "
+                      "It provides high connection speed and ensures stable operation even in the most challenging "
+                      "network conditions.") },
+        { DockerContainer::Xray,
+          QObject::tr("XRay with REALITY masks VPN traffic as web traffic and protects against active probing. "
+                      "It is highly resistant to detection and offers high speed.") },
+        { DockerContainer::Ipsec,
+          QObject::tr("IKEv2/IPsec -  Modern stable protocol, a bit faster than others, restores connection after "
+                      "signal loss. It has native support on the latest versions of Android and iOS.") },
 
-             { DockerContainer::TorWebSite, QObject::tr("Deploy a WordPress site on the Tor network in two clicks.") },
-             { DockerContainer::Dns,
-               QObject::tr("Replace the current DNS server with your own. This will increase your privacy level.") },
-             { DockerContainer::Sftp,
-               QObject::tr("Create a file vault on your server to securely store and transfer files.") },
-             { DockerContainer::Socks5Proxy, ("") },
-             { DockerContainer::MtProxy,
-               QObject::tr("Telegram MTProto proxy server") },
-             { DockerContainer::Telemt,
-               QObject::tr("Telegram MTProto proxy (Telemt, Rust)") },
+        { DockerContainer::TorWebSite, QObject::tr("Deploy a WordPress site on the Tor network in two clicks.") },
+        { DockerContainer::Dns,
+          QObject::tr("Replace the current DNS server with your own. This will increase your privacy level.") },
+        { DockerContainer::Sftp, QObject::tr("Create a file vault on your server to securely store and transfer files.") },
+        { DockerContainer::Socks5Proxy, ("") },
+        { DockerContainer::MtProxy, QObject::tr("Telegram MTProto proxy server") },
+        { DockerContainer::Telemt, QObject::tr("Telegram MTProto proxy (Telemt, Rust)") },
+        { DockerContainer::AmgptAuthProxy, QObject::tr("Authorization proxy for Amnezia GPT agent workloads.") },
+        { DockerContainer::OpenClawCodex, QObject::tr("Self-hosted OpenClaw runtime with Codex support.") },
     };
 }
 
@@ -135,9 +146,12 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
                       "* Flexible customization for various devices and OS\n"
                       "* Operates over both TCP and UDP protocols") },
         { DockerContainer::WireGuard,
-          QObject::tr("WireGuard is a modern, streamlined VPN protocol offering stable connectivity and excellent performance across all devices. "
-                      "It uses fixed encryption settings, delivering lower latency and higher data transfer speeds compared to OpenVPN. "
-                      "However, WireGuard is easily identifiable by DPI systems due to its distinctive packet signatures, making it susceptible to blocking.\n"
+          QObject::tr("WireGuard is a modern, streamlined VPN protocol offering stable connectivity and excellent "
+                      "performance across all devices. "
+                      "It uses fixed encryption settings, delivering lower latency and higher data transfer speeds "
+                      "compared to OpenVPN. "
+                      "However, WireGuard is easily identifiable by DPI systems due to its distinctive packet "
+                      "signatures, making it susceptible to blocking.\n"
                       "\nFeatures:\n"
                       "* Available on all AmneziaVPN platforms\n"
                       "* Low power consumption on mobile devices\n"
@@ -147,7 +161,8 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
         { DockerContainer::Awg2,
           QObject::tr("AmneziaWG is a modern VPN protocol based on WireGuard, "
                       "combining simplified architecture with high performance across all devices. "
-                      "It addresses WireGuard's main vulnerability (easy detection by DPI systems) through advanced obfuscation techniques, "
+                      "It addresses WireGuard's main vulnerability (easy detection by DPI systems) through advanced "
+                      "obfuscation techniques, "
                       "making VPN traffic indistinguishable from regular internet traffic.\n"
                       "\nAmneziaWG is an excellent choice for those seeking a fast, stealthy VPN connection.\n"
                       "\nFeatures:\n"
@@ -157,11 +172,15 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
                       "* Undetectable by traffic analysis systems (DPI)\n"
                       "* Operates over UDP protocol") },
         { DockerContainer::Xray,
-          QObject::tr("REALITY is an innovative protocol developed by the creators of XRay, designed specifically to combat high levels of internet censorship. "
+          QObject::tr("REALITY is an innovative protocol developed by the creators of XRay, designed specifically to "
+                      "combat high levels of internet censorship. "
                       "REALITY identifies censorship systems during the TLS handshake, "
-                      "redirecting suspicious traffic seamlessly to legitimate websites like google.com while providing genuine TLS certificates. "
-                      "This allows VPN traffic to blend indistinguishably with regular web traffic without special configuration."
-                      "\nUnlike older protocols such as VMess, VLESS, and XTLS-Vision, REALITY incorporates an advanced built-in \"friend-or-foe\" detection mechanism, "
+                      "redirecting suspicious traffic seamlessly to legitimate websites like google.com while "
+                      "providing genuine TLS certificates. "
+                      "This allows VPN traffic to blend indistinguishably with regular web traffic without special "
+                      "configuration."
+                      "\nUnlike older protocols such as VMess, VLESS, and XTLS-Vision, REALITY incorporates an "
+                      "advanced built-in \"friend-or-foe\" detection mechanism, "
                       "effectively protecting against DPI and other traffic analysis methods.\n"
                       "\nFeatures:\n"
                       "* Resistant to active probing and DPI detection\n"
@@ -171,8 +190,10 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
                       "* Operates over TCP protocol") },
         { DockerContainer::Ipsec,
           QObject::tr("IKEv2, combined with IPSec encryption, is a modern and reliable VPN protocol. "
-                      "It reconnects quickly when switching networks or devices, making it ideal for dynamic network environments. "
-                      "While it provides good security and speed, it's easily recognized by DPI systems and susceptible to blocking.\n"
+                      "It reconnects quickly when switching networks or devices, making it ideal for dynamic network "
+                      "environments. "
+                      "While it provides good security and speed, it's easily recognized by DPI systems and "
+                      "susceptible to blocking.\n"
                       "\nFeatures:\n"
                       "* Available in AmneziaVPN only on Windows\n"
                       "* Low battery consumption on mobile devices\n"
@@ -186,7 +207,8 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
           QObject::tr("After installation, Amnezia will create a\n\n file storage on your server. "
                       "You will be able to access it using\n FileZilla or other SFTP clients, "
                       "as well as mount the disk on your device to access\n it directly from your device.\n\n"
-                      "For more detailed information, you can\n find it in the support section under \"Create SFTP file storage.\" ") },
+                      "For more detailed information, you can\n find it in the support section under \"Create SFTP "
+                      "file storage.\" ") },
         { DockerContainer::Socks5Proxy, QObject::tr("SOCKS5 proxy server") },
         { DockerContainer::MtProxy,
           QObject::tr("Telegram MTProto proxy server. "
@@ -196,6 +218,12 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
         { DockerContainer::Telemt,
           QObject::tr("Telegram MTProto proxy powered by Telemt (Rust). "
                       "Supports secure and TLS fronting modes with optional traffic masking.") },
+        { DockerContainer::AmgptAuthProxy,
+          QObject::tr("Deploys the authorization proxy used by compatible agent workloads. "
+                      "It is installed and managed independently from the OpenClaw workload.") },
+        { DockerContainer::OpenClawCodex,
+          QObject::tr("Deploys a self-hosted OpenClaw runtime with Codex support. "
+                      "Authorization is configured separately after installation.") },
     };
 }
 
@@ -227,6 +255,8 @@ Proto ContainerUtils::defaultProtocol(DockerContainer c)
     case DockerContainer::Socks5Proxy: return Proto::Socks5Proxy;
     case DockerContainer::MtProxy: return Proto::MtProxy;
     case DockerContainer::Telemt: return Proto::Telemt;
+    case DockerContainer::AmgptAuthProxy: return Proto::AmgptAuthProxy;
+    case DockerContainer::OpenClawCodex: return Proto::OpenClawCodex;
     default: return Proto::Unknown;
     }
 }
@@ -256,8 +286,9 @@ bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
     case DockerContainer::SSXray: return true;
     case DockerContainer::MtProxy: return true;
     case DockerContainer::Telemt: return true;
-    default:
-        return false;
+    case DockerContainer::AmgptAuthProxy: return true;
+    case DockerContainer::OpenClawCodex: return true;
+    default: return false;
     }
 
 #elif defined(MACOS_NE)
@@ -273,8 +304,9 @@ bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
     case DockerContainer::SSXray: return true;
     case DockerContainer::MtProxy: return true;
     case DockerContainer::Telemt: return true;
-    default:
-        return false;
+    case DockerContainer::AmgptAuthProxy: return true;
+    case DockerContainer::OpenClawCodex: return true;
+    default: return false;
     }
 #elif defined(Q_OS_MAC)
     switch (c) {
@@ -293,6 +325,8 @@ bool ContainerUtils::isSupportedByCurrentPlatform(DockerContainer c)
     case DockerContainer::SSXray: return true;
     case DockerContainer::MtProxy: return true;
     case DockerContainer::Telemt: return true;
+    case DockerContainer::AmgptAuthProxy: return true;
+    case DockerContainer::OpenClawCodex: return true;
     default: return false;
     }
 
@@ -334,8 +368,10 @@ QString ContainerUtils::easySetupHeader(DockerContainer container)
 QString ContainerUtils::easySetupDescription(DockerContainer container)
 {
     switch (container) {
-    case DockerContainer::Awg2: return QObject::tr("AmneziaWG protocol will be installed. "
-                                         "It provides high connection speed and ensures stable operation even in the most challenging network conditions.");
+    case DockerContainer::Awg2:
+        return QObject::tr("AmneziaWG protocol will be installed. "
+                           "It provides high connection speed and ensures stable operation even in the most "
+                           "challenging network conditions.");
     default: return "";
     }
 }
@@ -361,6 +397,8 @@ bool ContainerUtils::isShareable(DockerContainer container)
     case DockerContainer::Socks5Proxy: return false;
     case DockerContainer::MtProxy: return false;
     case DockerContainer::Telemt: return false;
+    case DockerContainer::AmgptAuthProxy: return false;
+    case DockerContainer::OpenClawCodex: return false;
     default: return true;
     }
 }
@@ -377,10 +415,8 @@ bool ContainerUtils::isUnsupportedContainer(DockerContainer container)
 
 QJsonObject ContainerUtils::getProtocolConfigFromContainer(const Proto protocol, const QJsonObject &containerConfig)
 {
-    QString protocolConfigString = containerConfig.value(ProtocolUtils::protoToString(protocol))
-    .toObject()
-            .value(configKey::lastConfig)
-            .toString();
+    QString protocolConfigString =
+            containerConfig.value(ProtocolUtils::protoToString(protocol)).toObject().value(configKey::lastConfig).toString();
 
     return QJsonDocument::fromJson(protocolConfigString.toUtf8()).object();
 }
@@ -395,9 +431,9 @@ int ContainerUtils::installPageOrder(DockerContainer container)
     case DockerContainer::Ipsec: return 7;
     case DockerContainer::SSXray: return 8;
     case DockerContainer::MtProxy:
-    case DockerContainer::Telemt:
-        return 20;
+    case DockerContainer::Telemt: return 20;
+    case DockerContainer::AmgptAuthProxy: return 21;
+    case DockerContainer::OpenClawCodex: return 22;
     default: return 0;
     }
 }
-

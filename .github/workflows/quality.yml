@@ -1,0 +1,186 @@
+name: Quality gates
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 3 * * 6'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  QT_VERSION: 6.10.1
+  QT_MIRROR: https://mirrors.ocf.berkeley.edu/qt/
+  AMNEZIA_CMAKE_PRESET: ci
+  AMNEZIA_CMAKE_CLIENT_PRESET: ci-client
+
+jobs:
+  static-contracts:
+    name: Static and contract checks
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtremoteobjects qt5compat qtshadertools
+          dir: ${{ runner.temp }}
+          setup-python: true
+          set-env: true
+          aqtversion: '==3.3.0'
+          py7zrversion: '==0.22.*'
+          extra: '--base ${{ env.QT_MIRROR }}'
+
+      - name: Export Qt prefix for CMake presets
+        run: echo "CMAKE_PREFIX_PATH=${RUNNER_TEMP}/Qt/${QT_VERSION}/gcc_64" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        uses: taiki-e/install-action@just
+
+      - name: Install Conan
+        run: python3 -m pip install 'conan==2.28.0'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libxkbcommon-x11-0 libsecret-1-dev
+
+      - name: Configure and run static and contract checks
+        run: just quality check
+
+  linux-unit-tests:
+    name: Linux first-party unit tests
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtremoteobjects qt5compat qtshadertools
+          dir: ${{ runner.temp }}
+          setup-python: true
+          set-env: true
+          aqtversion: '==3.3.0'
+          py7zrversion: '==0.22.*'
+          extra: '--base ${{ env.QT_MIRROR }}'
+
+      - name: Export Qt prefix for CMake presets
+        run: echo "CMAKE_PREFIX_PATH=${RUNNER_TEMP}/Qt/${QT_VERSION}/gcc_64" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        uses: taiki-e/install-action@just
+
+      - name: Install Conan
+        run: python3 -m pip install 'conan==2.28.0'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libxkbcommon-x11-0 libsecret-1-dev
+
+      - name: Build and run first-party tests
+        run: just quality test
+
+  desktop-client-build:
+    name: Linux desktop client build
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtremoteobjects qt5compat qtshadertools
+          dir: ${{ runner.temp }}
+          setup-python: true
+          set-env: true
+          aqtversion: '==3.3.0'
+          py7zrversion: '==0.22.*'
+          extra: '--base ${{ env.QT_MIRROR }}'
+
+      - name: Export Qt prefix for CMake presets
+        run: echo "CMAKE_PREFIX_PATH=${RUNNER_TEMP}/Qt/${QT_VERSION}/gcc_64" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        uses: taiki-e/install-action@just
+
+      - name: Install Conan
+        run: python3 -m pip install 'conan==2.28.0'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libxkbcommon-x11-0 libsecret-1-dev
+
+      - name: Build desktop client
+        run: just quality client-build
+
+  sanitizers:
+    name: Scheduled ASan and UBSan tests
+    if: github.event_name == 'schedule'
+    continue-on-error: true
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out sources
+        uses: actions/checkout@v4
+        with:
+          submodules: true
+
+      - name: Install Qt
+        uses: jurplel/install-qt-action@v3
+        with:
+          version: ${{ env.QT_VERSION }}
+          host: linux
+          target: desktop
+          arch: linux_gcc_64
+          modules: qtremoteobjects qt5compat qtshadertools
+          dir: ${{ runner.temp }}
+          setup-python: true
+          set-env: true
+          aqtversion: '==3.3.0'
+          py7zrversion: '==0.22.*'
+          extra: '--base ${{ env.QT_MIRROR }}'
+
+      - name: Export Qt prefix for CMake presets
+        run: echo "CMAKE_PREFIX_PATH=${RUNNER_TEMP}/Qt/${QT_VERSION}/gcc_64" >> "$GITHUB_ENV"
+
+      - name: Install build tools
+        uses: taiki-e/install-action@just
+
+      - name: Install Conan
+        run: python3 -m pip install 'conan==2.28.0'
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install --yes libxkbcommon-x11-0 libsecret-1-dev
+
+      - name: Build and run sanitizer tests
+        run: just quality sanitizer-test

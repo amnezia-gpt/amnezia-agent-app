@@ -25,7 +25,7 @@ QVariant ContainersModel::data(const QModelIndex &index, int role) const
     DockerContainer container = ContainerUtils::allContainers().at(index.row());
     bool isThirdPartyConfig = false;
     if (m_containers.contains(container)) {
-        const ContainerConfig& config = m_containers.value(container);
+        const ContainerConfig &config = m_containers.value(container);
         isThirdPartyConfig = config.protocolConfig.isThirdPartyConfig();
     }
 
@@ -39,7 +39,8 @@ QVariant ContainersModel::data(const QModelIndex &index, int role) const
     case DescriptionRole: {
         if (container == DockerContainer::Awg && !isThirdPartyConfig) {
             return QObject::tr("AmneziaWG is a special protocol from Amnezia based on WireGuard. "
-                           "It provides high connection speed and ensures stable operation even in the most challenging network conditions.");
+                               "It provides high connection speed and ensures stable operation even in the most "
+                               "challenging network conditions.");
         }
 
         return ContainerUtils::containerDescriptions().value(container);
@@ -77,6 +78,8 @@ QVariant ContainersModel::data(const QModelIndex &index, int role) const
     case IsSocks5ProxyRole: return container == DockerContainer::Socks5Proxy;
     case IsMtProxyRole: return container == DockerContainer::MtProxy;
     case IsTelemtRole: return container == DockerContainer::Telemt;
+    case IsAgentWorkloadRole:
+        return container == DockerContainer::AmgptAuthProxy || container == DockerContainer::OpenClawCodex;
     case InstallPageOrderRole: return ContainerUtils::installPageOrder(container);
     }
 
@@ -143,14 +146,13 @@ bool ContainersModel::hasInstalledProtocols()
 
 bool ContainersModel::isInstallationAllowed(DockerContainer container)
 {
-    return container != DockerContainer::Awg
-           && !ContainerUtils::isUnsupportedContainer(container);
+    return container != DockerContainer::Awg && !ContainerUtils::isUnsupportedContainer(container);
 }
 
 void ContainersModel::openContainerSettings(int containerIndex)
 {
     DockerContainer container = static_cast<DockerContainer>(containerIndex);
-    
+
     // This method will be connected to QML signals to open appropriate settings page
     // The actual navigation will be handled in QML based on container type
     // For now, we emit a signal that QML can listen to
@@ -181,7 +183,7 @@ QHash<int, QByteArray> ContainersModel::roleNames() const
     roles[IsUnsupportedContainerRole] = "isUnsupportedContainer";
     roles[IsInstallationAllowedRole] = "isInstallationAllowed";
     roles[InstallPageOrderRole] = "installPageOrder";
-    
+
     roles[IsVpnContainerRole] = "isVpnContainer";
     roles[IsServiceContainerRole] = "isServiceContainer";
     roles[IsIpsecRole] = "isIpsec";
@@ -191,5 +193,6 @@ QHash<int, QByteArray> ContainersModel::roleNames() const
     roles[IsSocks5ProxyRole] = "isSocks5Proxy";
     roles[IsMtProxyRole] = "isMtProxy";
     roles[IsTelemtRole] = "isTelemt";
+    roles[IsAgentWorkloadRole] = "isAgentWorkload";
     return roles;
 }

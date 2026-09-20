@@ -28,6 +28,8 @@ namespace amnezia
             Socks5Proxy,
             MtProxy,
             Telemt,
+            AmgptAuthProxy = 16,
+            OpenClawCodex = 17,
         };
         Q_ENUM_NS(DockerContainer)
     } // namespace ContainerEnumNS
@@ -36,5 +38,3 @@ namespace amnezia
 }
 
 #endif // CONTAINERENUM_H
-
-

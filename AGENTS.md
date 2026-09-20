@@ -14,8 +14,11 @@ browser-mediated authorization proof of concept described in
    is not already explicit.
 3. Use `planning-and-task-breakdown` for changes spanning more than one layer,
    platform, repository, or externally visible contract.
-4. Invoke every repo-local skill whose description matches the work.
-5. Preserve unrelated user changes and never overwrite a dirty worktree.
+4. Use `test-driven-development` for new logic, observable behavior changes,
+   and bug fixes. Start with a focused failing test when practical, and use
+   characterization tests before refactoring untested legacy behavior.
+5. Invoke every repo-local skill whose description matches the work.
+6. Preserve unrelated user changes and never overwrite a dirty worktree.
 
 ## Branch and upstream model
 
@@ -55,6 +58,9 @@ browser-mediated authorization proof of concept described in
   a self-hosted workload; files on disk alone are not compiled into the app.
 - Architectural or cross-repository contract decisions belong in `docs/`; use
   an ADR for decisions that will be expensive to reverse.
+- Keep local CMake builds memory-bounded. Use the checked-in presets or `just`
+  commands, which default to two parallel jobs. Never invoke bare `--parallel`;
+  use `--parallel 2`. Raising the local limit requires explicit user approval.
 
 ## Definition of done
 
@@ -63,3 +69,17 @@ documentation, and the strongest available validation are accounted for.
 Report successful, failed, blocked, skipped, and not-applicable checks
 separately. Always run `git diff --check`; use `validation-and-evidence` to
 select build and runtime evidence proportional to the change.
+
+## Validation commands
+
+- Use `just quality check` for the fast repository, embedded-resource, shell,
+  and self-hosted registry contract gate.
+- Use `just quality test` for the complete deterministic first-party Qt test
+  suite.
+- Use `just quality client-build` when production C++ or shared build wiring
+  changes; it proves only the current host's desktop client target.
+- Override the conservative local limit only when explicitly authorized with
+  `AMNEZIA_BUILD_JOBS=<count>`.
+- `just smoke agent-workloads-remote` is reserved for the explicit disposable
+  remote-host scenario. It intentionally fails until GH-1 provides that
+  scenario and must never be treated as a successful no-op.

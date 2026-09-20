@@ -6,10 +6,10 @@
 #include <utility>
 #include <vector>
 
+#include "core/models/containerConfig.h"
 #include "core/utils/containerEnum.h"
 #include "core/utils/containers/containerUtils.h"
 #include "core/utils/protocolEnum.h"
-#include "core/models/containerConfig.h"
 
 class ContainersModel : public QAbstractListModel
 {
@@ -42,7 +42,7 @@ public:
         IsUnsupportedContainerRole,
 
         InstallPageOrderRole,
-        
+
         // Container type check roles
         IsVpnContainerRole,
         IsServiceContainerRole,
@@ -53,8 +53,9 @@ public:
         IsSocks5ProxyRole,
         IsMtProxyRole,
         IsTelemtRole,
+        IsAgentWorkloadRole,
     };
-    
+
     Q_INVOKABLE void openContainerSettings(int containerIndex);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;

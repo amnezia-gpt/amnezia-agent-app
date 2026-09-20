@@ -20,6 +20,12 @@ project(${PROJECT} VERSION ${AMNEZIAVPN_VERSION}
         HOMEPAGE_URL "https://amnezia.org/"
 )
 
+# Preserve the existing application build unless a test preset opts in. CTest
+# normally defaults BUILD_TESTING to ON, which would make every upstream build
+# configure the first-party test graph.
+option(BUILD_TESTING "Build first-party tests" OFF)
+include(CTest)
+
 # trigger conan to kick off `conan install` globally
 find_package(OpenSSL REQUIRED)
 if (PREBUILTS_ONLY)
@@ -82,4 +88,8 @@ endif()
 
 if ((LINUX AND NOT ANDROID) OR (APPLE AND NOT IOS AND NOT MACOS_NE) OR (WIN32))
     include(${CMAKE_SOURCE_DIR}/cmake/CPack.cmake)
+endif()
+
+if(BUILD_TESTING)
+    add_subdirectory(tests EXCLUDE_FROM_ALL)
 endif()

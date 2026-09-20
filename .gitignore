@@ -28,6 +28,7 @@ ui_*.h
 Makefile*
 *build-*
 compile_commands.json
+CMakeUserPresets.json
 
 # fastlane
 client/fastlane/report.xml
@@ -146,3 +147,5 @@ macos-with-sign-build.sh
 DeveloperIdApplicationCertificate.p12
 DeveloperIdInstallerCertificate.p12
 
+# Local Codex subagent audit ledgers
+.agents/runs/

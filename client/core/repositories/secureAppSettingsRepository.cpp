@@ -1,4 +1,5 @@
 #include "secureAppSettingsRepository.h"
+#include "core/models/agentWorkloadDeploymentSpec.h"
 
 #include <QJsonDocument>
 #include <QJsonArray>
@@ -294,6 +295,36 @@ void SecureAppSettingsRepository::setDevGatewayEndpoint()
 {
     m_gatewayEndpoint = QString(DEV_AGW_ENDPOINT);
     setValue("Conf/gatewayEndpoint", DEV_AGW_ENDPOINT);
+}
+
+QString SecureAppSettingsRepository::agentWorkloadEnvironment() const
+{
+    return value("Conf/agentWorkloadEnvironment", QStringLiteral("dev")).toString();
+}
+
+QVariantMap SecureAppSettingsRepository::localAgentBackendProfile() const
+{
+    return value("Conf/localAgentBackendProfile").toMap();
+}
+
+bool SecureAppSettingsRepository::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl)
+{
+    AgentBackendProfileCatalog catalog;
+    catalog.local = { QStringLiteral("local"), authIssuer.trimmed(), routerBaseUrl.trimmed() };
+    const auto profile = resolveAgentBackendProfile(AgentBackendEnvironment::Local, catalog);
+    if (!profile) return false;
+    setValue("Conf/localAgentBackendProfile", QVariantMap {
+        { QStringLiteral("authIssuer"), profile->authIssuer },
+        { QStringLiteral("routerBaseUrl"), profile->routerBaseUrl },
+    });
+    return true;
+}
+
+void SecureAppSettingsRepository::setAgentWorkloadEnvironment(const QString &environment)
+{
+    if (environment == QStringLiteral("local") || environment == QStringLiteral("dev")) {
+        setValue("Conf/agentWorkloadEnvironment", environment);
+    }
 }
 
 bool SecureAppSettingsRepository::isDevGatewayEnv(bool isTestPurchase) const

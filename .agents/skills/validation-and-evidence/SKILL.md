@@ -27,7 +27,9 @@ Choose the strongest applicable and available evidence:
    - macOS client-only debug target when appropriate:
      `cmake -S . -B deploy/build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$HOME/Qt/6.10.1/macos"`
      followed by
-     `cmake --build deploy/build --target AmneziaVPN --parallel`
+     `cmake --build deploy/build --target AmneziaVPN --parallel 2`
+   - local build commands must always specify at most two parallel jobs unless
+     the user explicitly approves a higher limit; never use bare `--parallel`
    - use `deploy/build.sh` or the corresponding CI job for a full host build,
      service, installer, cross-compile, or packaging claim
 4. **Behavioral evidence**

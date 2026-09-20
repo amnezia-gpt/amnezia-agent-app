@@ -22,6 +22,10 @@ set(HEADERS ${HEADERS}
     ${CLIENT_ROOT_DIR}/core/controllers/coreSignalHandlers.h
     ${CLIENT_ROOT_DIR}/core/controllers/gatewayController.h
     ${CLIENT_ROOT_DIR}/core/utils/selfhosted/sshSession.h
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadDeploymentSpec.h
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadApply.h
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadReconciliation.h
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadLogin.h
     ${CLIENT_ROOT_DIR}/core/controllers/serversController.h
     ${CLIENT_ROOT_DIR}/core/controllers/selfhosted/usersController.h
     ${CLIENT_ROOT_DIR}/core/controllers/selfhosted/installController.h
@@ -106,6 +110,10 @@ set(SOURCES ${SOURCES}
     ${CLIENT_ROOT_DIR}/core/controllers/coreSignalHandlers.cpp
     ${CLIENT_ROOT_DIR}/core/controllers/gatewayController.cpp
     ${CLIENT_ROOT_DIR}/core/utils/selfhosted/sshSession.cpp
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadDeploymentSpec.cpp
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadApply.cpp
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadReconciliation.cpp
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadLogin.cpp
     ${CLIENT_ROOT_DIR}/core/controllers/serversController.cpp
     ${CLIENT_ROOT_DIR}/core/controllers/selfhosted/usersController.cpp
     ${CLIENT_ROOT_DIR}/core/controllers/selfhosted/installController.cpp

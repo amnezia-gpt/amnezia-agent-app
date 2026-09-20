@@ -27,6 +27,8 @@ public:
     Q_PROPERTY(bool isDevModeEnabled READ isDevModeEnabled NOTIFY devModeEnabled)
     Q_PROPERTY(QString gatewayEndpoint READ getGatewayEndpoint WRITE setGatewayEndpoint NOTIFY gatewayEndpointChanged)
     Q_PROPERTY(bool isDevGatewayEnv READ isDevGatewayEnv WRITE toggleDevGatewayEnv NOTIFY devGatewayEnvChanged)
+    Q_PROPERTY(QString agentWorkloadEnvironment READ agentWorkloadEnvironment WRITE setAgentWorkloadEnvironment NOTIFY agentWorkloadEnvironmentChanged)
+    Q_PROPERTY(QVariantMap localAgentBackendProfile READ localAgentBackendProfile NOTIFY localAgentBackendProfileChanged)
 
     Q_PROPERTY(bool isHomeAdLabelVisible READ isHomeAdLabelVisible NOTIFY isHomeAdLabelVisibleChanged)
     Q_PROPERTY(bool autoStartEnabled READ isAutoStartEnabled NOTIFY autoStartChanged)
@@ -95,6 +97,10 @@ public slots:
     QString getGatewayEndpoint();
     bool isDevGatewayEnv();
     void toggleDevGatewayEnv(bool enabled);
+    QString agentWorkloadEnvironment();
+    void setAgentWorkloadEnvironment(const QString &environment);
+    QVariantMap localAgentBackendProfile();
+    bool saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl);
 
     bool isOnTv();
 
@@ -128,6 +134,8 @@ signals:
     void devModeEnabled();
     void gatewayEndpointChanged(const QString &endpoint);
     void devGatewayEnvChanged(bool enabled);
+    void agentWorkloadEnvironmentChanged();
+    void localAgentBackendProfileChanged();
 
     void activityPaused();
     void activityResumed();

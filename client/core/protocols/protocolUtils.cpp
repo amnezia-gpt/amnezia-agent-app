@@ -1,8 +1,8 @@
 #include "protocolUtils.h"
 
-#include <QRandomGenerator>
 #include <QJsonObject>
 #include <QObject>
+#include <QRandomGenerator>
 
 using namespace amnezia;
 
@@ -58,19 +58,22 @@ QString ProtocolUtils::protoToString(Proto p)
 
 QMap<Proto, QString> ProtocolUtils::protocolHumanNames()
 {
-    return { { Proto::OpenVpn, "OpenVPN" },
-             { Proto::WireGuard, "WireGuard" },
-             { Proto::Awg, "AmneziaWG" },
-             { Proto::Ikev2, "IKEv2" },
-             { Proto::Xray, "XRay" },
-             { Proto::SSXray, "Shadowsocks"},
+    return {
+        { Proto::OpenVpn, "OpenVPN" },
+        { Proto::WireGuard, "WireGuard" },
+        { Proto::Awg, "AmneziaWG" },
+        { Proto::Ikev2, "IKEv2" },
+        { Proto::Xray, "XRay" },
+        { Proto::SSXray, "Shadowsocks" },
 
-             { Proto::TorWebSite, "Website in Tor network" },
-             { Proto::Dns, "DNS Service" },
-             { Proto::Sftp, QObject::tr("SFTP service") },
-             { Proto::Socks5Proxy, QObject::tr("SOCKS5 proxy server") },
-             { Proto::MtProxy, QObject::tr("MTProxy (Telegram)") },
-             { Proto::Telemt, QObject::tr("Telemt (Telegram)") },
+        { Proto::TorWebSite, "Website in Tor network" },
+        { Proto::Dns, "DNS Service" },
+        { Proto::Sftp, QObject::tr("SFTP service") },
+        { Proto::Socks5Proxy, QObject::tr("SOCKS5 proxy server") },
+        { Proto::MtProxy, QObject::tr("MTProxy (Telegram)") },
+        { Proto::Telemt, QObject::tr("Telemt (Telegram)") },
+        { Proto::AmgptAuthProxy, QObject::tr("AMGPT Auth Proxy") },
+        { Proto::OpenClawCodex, QObject::tr("OpenClaw + Codex") },
     };
 }
 
@@ -97,6 +100,8 @@ ServiceType ProtocolUtils::protocolService(Proto p)
     case Proto::Socks5Proxy: return ServiceType::Other;
     case Proto::MtProxy: return ServiceType::Other;
     case Proto::Telemt: return ServiceType::Other;
+    case Proto::AmgptAuthProxy: return ServiceType::Other;
+    case Proto::OpenClawCodex: return ServiceType::Other;
     default: return ServiceType::Other;
     }
 }
@@ -107,12 +112,12 @@ int ProtocolUtils::getPortForInstall(Proto p)
     case Awg:
     case WireGuard:
     case OpenVpn:
-    case Socks5Proxy:
-        return QRandomGenerator::global()->bounded(30000, 50000);
+    case Socks5Proxy: return QRandomGenerator::global()->bounded(30000, 50000);
     case MtProxy:
     case Telemt:
-    default:
-        return defaultPort(p);
+    case AmgptAuthProxy:
+    case OpenClawCodex:
+    default: return defaultPort(p);
     }
 }
 
@@ -132,6 +137,8 @@ int ProtocolUtils::defaultPort(Proto p)
     case Proto::Socks5Proxy: return 38080;
     case Proto::MtProxy: return QString(protocols::mtProxy::defaultPort).toInt();
     case Proto::Telemt: return QString(protocols::telemt::defaultPort).toInt();
+    case Proto::AmgptAuthProxy: return QString(protocols::amgptAuthProxy::defaultPort).toInt();
+    case Proto::OpenClawCodex: return QString(protocols::openClawCodex::defaultPort).toInt();
     default: return -1;
     }
 }
@@ -152,6 +159,8 @@ bool ProtocolUtils::defaultPortChangeable(Proto p)
     case Proto::Socks5Proxy: return true;
     case Proto::MtProxy: return true;
     case Proto::Telemt: return true;
+    case Proto::AmgptAuthProxy: return true;
+    case Proto::OpenClawCodex: return true;
     default: return false;
     }
 }
@@ -174,6 +183,8 @@ TransportProto ProtocolUtils::defaultTransportProto(Proto p)
     case Proto::Socks5Proxy: return TransportProto::Tcp;
     case Proto::MtProxy: return TransportProto::Tcp;
     case Proto::Telemt: return TransportProto::Tcp;
+    case Proto::AmgptAuthProxy: return TransportProto::Tcp;
+    case Proto::OpenClawCodex: return TransportProto::Tcp;
     default: return TransportProto::Udp;
     }
 }
@@ -195,6 +206,8 @@ bool ProtocolUtils::defaultTransportProtoChangeable(Proto p)
     case Proto::Socks5Proxy: return false;
     case Proto::MtProxy: return false;
     case Proto::Telemt: return false;
+    case Proto::AmgptAuthProxy: return false;
+    case Proto::OpenClawCodex: return false;
     default: return false;
     }
 }
@@ -208,4 +221,3 @@ QString ProtocolUtils::key_proto_config_path(Proto p)
 {
     return protoToString(p) + "_config_path";
 }
-

@@ -2,166 +2,184 @@
 
 #include <QJsonDocument>
 
-#include "core/utils/containerEnum.h"
-#include "core/utils/containers/containerUtils.h"
-#include "core/utils/protocolEnum.h"
-#include "core/utils/protocolEnum.h"
 #include "core/protocols/protocolUtils.h"
 #include "core/utils/constants/configKeys.h"
 #include "core/utils/constants/protocolConstants.h"
+#include "core/utils/containerEnum.h"
+#include "core/utils/containers/containerUtils.h"
+#include "core/utils/protocolEnum.h"
 
 namespace amnezia
 {
 
-using namespace ContainerEnumNS;
-using namespace ProtocolEnumNS;
-using namespace ProtocolUtils;
+    using namespace ContainerEnumNS;
+    using namespace ProtocolEnumNS;
+    using namespace ProtocolUtils;
 
-Proto ContainerConfig::getProtocolType() const
-{
-    return ContainerUtils::defaultProtocol(container);
-}
+    Proto ContainerConfig::getProtocolType() const
+    {
+        return ContainerUtils::defaultProtocol(container);
+    }
 
-QJsonObject ContainerConfig::toJson() const
-{
-    QJsonObject obj;
-    
-    obj[configKey::container] = ContainerUtils::containerToString(container);
-    
-    Proto protoType = getProtocolType();
-    QString protoName = ProtocolUtils::protoToString(protoType);
-    
-    obj[protoName] = protocolConfig.toJson();
-    
-    return obj;
-}
+    QJsonObject ContainerConfig::toJson() const
+    {
+        QJsonObject obj;
 
-ContainerConfig ContainerConfig::fromJson(const QJsonObject& json)
-{
-    ContainerConfig config;
-    
-    QString containerStr = json.value(configKey::container).toString();
-    config.container = ContainerUtils::containerFromString(containerStr);
-    
-    Proto protoType = ContainerUtils::defaultProtocol(config.container);
-    QString protoName = ProtocolUtils::protoToString(protoType);
-    
-    QJsonObject protoJson = json.value(protoName).toObject();
-    
-    config.protocolConfig = ProtocolConfig::fromJson(protoJson, protoType);
-    
-    return config;
-}
+        obj[configKey::container] = ContainerUtils::containerToString(container);
 
-AwgProtocolConfig* ContainerConfig::getAwgProtocolConfig()
-{
-    return protocolConfig.as<AwgProtocolConfig>();
-}
+        Proto protoType = getProtocolType();
+        QString protoName = ProtocolUtils::protoToString(protoType);
 
-const AwgProtocolConfig* ContainerConfig::getAwgProtocolConfig() const
-{
-    return protocolConfig.as<AwgProtocolConfig>();
-}
+        obj[protoName] = protocolConfig.toJson();
 
-WireGuardProtocolConfig* ContainerConfig::getWireGuardProtocolConfig()
-{
-    return protocolConfig.as<WireGuardProtocolConfig>();
-}
+        return obj;
+    }
 
-const WireGuardProtocolConfig* ContainerConfig::getWireGuardProtocolConfig() const
-{
-    return protocolConfig.as<WireGuardProtocolConfig>();
-}
+    ContainerConfig ContainerConfig::fromJson(const QJsonObject &json)
+    {
+        ContainerConfig config;
 
-OpenVpnProtocolConfig* ContainerConfig::getOpenVpnProtocolConfig()
-{
-    return protocolConfig.as<OpenVpnProtocolConfig>();
-}
+        QString containerStr = json.value(configKey::container).toString();
+        config.container = ContainerUtils::containerFromString(containerStr);
 
-const OpenVpnProtocolConfig* ContainerConfig::getOpenVpnProtocolConfig() const
-{
-    return protocolConfig.as<OpenVpnProtocolConfig>();
-}
+        Proto protoType = ContainerUtils::defaultProtocol(config.container);
+        QString protoName = ProtocolUtils::protoToString(protoType);
 
-XrayProtocolConfig* ContainerConfig::getXrayProtocolConfig()
-{
-    return protocolConfig.as<XrayProtocolConfig>();
-}
+        QJsonObject protoJson = json.value(protoName).toObject();
 
-const XrayProtocolConfig* ContainerConfig::getXrayProtocolConfig() const
-{
-    return protocolConfig.as<XrayProtocolConfig>();
-}
+        config.protocolConfig = ProtocolConfig::fromJson(protoJson, protoType);
 
-SftpProtocolConfig* ContainerConfig::getSftpProtocolConfig()
-{
-    return protocolConfig.as<SftpProtocolConfig>();
-}
+        return config;
+    }
 
-const SftpProtocolConfig* ContainerConfig::getSftpProtocolConfig() const
-{
-    return protocolConfig.as<SftpProtocolConfig>();
-}
+    AwgProtocolConfig *ContainerConfig::getAwgProtocolConfig()
+    {
+        return protocolConfig.as<AwgProtocolConfig>();
+    }
 
-Socks5ProxyProtocolConfig* ContainerConfig::getSocks5ProxyProtocolConfig()
-{
-    return protocolConfig.as<Socks5ProxyProtocolConfig>();
-}
+    const AwgProtocolConfig *ContainerConfig::getAwgProtocolConfig() const
+    {
+        return protocolConfig.as<AwgProtocolConfig>();
+    }
 
-const Socks5ProxyProtocolConfig* ContainerConfig::getSocks5ProxyProtocolConfig() const
-{
-    return protocolConfig.as<Socks5ProxyProtocolConfig>();
-}
+    WireGuardProtocolConfig *ContainerConfig::getWireGuardProtocolConfig()
+    {
+        return protocolConfig.as<WireGuardProtocolConfig>();
+    }
 
-MtProxyProtocolConfig* ContainerConfig::getMtProxyProtocolConfig()
-{
-    return protocolConfig.as<MtProxyProtocolConfig>();
-}
+    const WireGuardProtocolConfig *ContainerConfig::getWireGuardProtocolConfig() const
+    {
+        return protocolConfig.as<WireGuardProtocolConfig>();
+    }
 
-const MtProxyProtocolConfig* ContainerConfig::getMtProxyProtocolConfig() const
-{
-    return protocolConfig.as<MtProxyProtocolConfig>();
-}
+    OpenVpnProtocolConfig *ContainerConfig::getOpenVpnProtocolConfig()
+    {
+        return protocolConfig.as<OpenVpnProtocolConfig>();
+    }
 
-TelemtProtocolConfig* ContainerConfig::getTelemtProtocolConfig()
-{
-    return protocolConfig.as<TelemtProtocolConfig>();
-}
+    const OpenVpnProtocolConfig *ContainerConfig::getOpenVpnProtocolConfig() const
+    {
+        return protocolConfig.as<OpenVpnProtocolConfig>();
+    }
 
-const TelemtProtocolConfig* ContainerConfig::getTelemtProtocolConfig() const
-{
-    return protocolConfig.as<TelemtProtocolConfig>();
-}
+    XrayProtocolConfig *ContainerConfig::getXrayProtocolConfig()
+    {
+        return protocolConfig.as<XrayProtocolConfig>();
+    }
 
-Ikev2ProtocolConfig* ContainerConfig::getIkev2ProtocolConfig()
-{
-    return protocolConfig.as<Ikev2ProtocolConfig>();
-}
+    const XrayProtocolConfig *ContainerConfig::getXrayProtocolConfig() const
+    {
+        return protocolConfig.as<XrayProtocolConfig>();
+    }
 
-const Ikev2ProtocolConfig* ContainerConfig::getIkev2ProtocolConfig() const
-{
-    return protocolConfig.as<Ikev2ProtocolConfig>();
-}
+    SftpProtocolConfig *ContainerConfig::getSftpProtocolConfig()
+    {
+        return protocolConfig.as<SftpProtocolConfig>();
+    }
 
-TorProtocolConfig* ContainerConfig::getTorProtocolConfig()
-{
-    return protocolConfig.as<TorProtocolConfig>();
-}
+    const SftpProtocolConfig *ContainerConfig::getSftpProtocolConfig() const
+    {
+        return protocolConfig.as<SftpProtocolConfig>();
+    }
 
-const TorProtocolConfig* ContainerConfig::getTorProtocolConfig() const
-{
-    return protocolConfig.as<TorProtocolConfig>();
-}
+    Socks5ProxyProtocolConfig *ContainerConfig::getSocks5ProxyProtocolConfig()
+    {
+        return protocolConfig.as<Socks5ProxyProtocolConfig>();
+    }
 
-DnsProtocolConfig* ContainerConfig::getDnsProtocolConfig()
-{
-    return protocolConfig.as<DnsProtocolConfig>();
-}
+    const Socks5ProxyProtocolConfig *ContainerConfig::getSocks5ProxyProtocolConfig() const
+    {
+        return protocolConfig.as<Socks5ProxyProtocolConfig>();
+    }
 
-const DnsProtocolConfig* ContainerConfig::getDnsProtocolConfig() const
-{
-    return protocolConfig.as<DnsProtocolConfig>();
-}
+    MtProxyProtocolConfig *ContainerConfig::getMtProxyProtocolConfig()
+    {
+        return protocolConfig.as<MtProxyProtocolConfig>();
+    }
+
+    const MtProxyProtocolConfig *ContainerConfig::getMtProxyProtocolConfig() const
+    {
+        return protocolConfig.as<MtProxyProtocolConfig>();
+    }
+
+    TelemtProtocolConfig *ContainerConfig::getTelemtProtocolConfig()
+    {
+        return protocolConfig.as<TelemtProtocolConfig>();
+    }
+
+    const TelemtProtocolConfig *ContainerConfig::getTelemtProtocolConfig() const
+    {
+        return protocolConfig.as<TelemtProtocolConfig>();
+    }
+
+    AmgptAuthProxyProtocolConfig *ContainerConfig::getAmgptAuthProxyProtocolConfig()
+    {
+        return protocolConfig.as<AmgptAuthProxyProtocolConfig>();
+    }
+
+    const AmgptAuthProxyProtocolConfig *ContainerConfig::getAmgptAuthProxyProtocolConfig() const
+    {
+        return protocolConfig.as<AmgptAuthProxyProtocolConfig>();
+    }
+
+    OpenClawCodexProtocolConfig *ContainerConfig::getOpenClawCodexProtocolConfig()
+    {
+        return protocolConfig.as<OpenClawCodexProtocolConfig>();
+    }
+
+    const OpenClawCodexProtocolConfig *ContainerConfig::getOpenClawCodexProtocolConfig() const
+    {
+        return protocolConfig.as<OpenClawCodexProtocolConfig>();
+    }
+
+    Ikev2ProtocolConfig *ContainerConfig::getIkev2ProtocolConfig()
+    {
+        return protocolConfig.as<Ikev2ProtocolConfig>();
+    }
+
+    const Ikev2ProtocolConfig *ContainerConfig::getIkev2ProtocolConfig() const
+    {
+        return protocolConfig.as<Ikev2ProtocolConfig>();
+    }
+
+    TorProtocolConfig *ContainerConfig::getTorProtocolConfig()
+    {
+        return protocolConfig.as<TorProtocolConfig>();
+    }
+
+    const TorProtocolConfig *ContainerConfig::getTorProtocolConfig() const
+    {
+        return protocolConfig.as<TorProtocolConfig>();
+    }
+
+    DnsProtocolConfig *ContainerConfig::getDnsProtocolConfig()
+    {
+        return protocolConfig.as<DnsProtocolConfig>();
+    }
+
+    const DnsProtocolConfig *ContainerConfig::getDnsProtocolConfig() const
+    {
+        return protocolConfig.as<DnsProtocolConfig>();
+    }
 
 } // namespace amnezia
-

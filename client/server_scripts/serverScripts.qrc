@@ -1,5 +1,7 @@
 <RCC>
     <qresource prefix="/server_scripts">
+        <file>amgpt-auth-proxy/Dockerfile</file>
+        <file>amgpt-auth-proxy/run_container.sh</file>
         <file>awg/configure_container.sh</file>
         <file>awg/Dockerfile</file>
         <file>awg/run_container.sh</file>
@@ -38,6 +40,8 @@
         <file>openvpn/run_container.sh</file>
         <file>openvpn/start.sh</file>
         <file>openvpn/template.ovpn</file>
+        <file>openclaw-codex/Dockerfile</file>
+        <file>openclaw-codex/run_container.sh</file>
         <file>prepare_host.sh</file>
         <file>remove_all_containers.sh</file>
         <file>remove_container.sh</file>

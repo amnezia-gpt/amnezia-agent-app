@@ -77,6 +77,10 @@ public:
     QString getGatewayEndpoint() const;
     bool isDevGatewayEnv() const;
     void toggleDevGatewayEnv(bool enabled);
+    QString agentWorkloadEnvironment() const;
+    void setAgentWorkloadEnvironment(const QString &environment);
+    QVariantMap localAgentBackendProfile() const;
+    bool saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl);
 
     bool isHomeAdLabelVisible() const;
     void disableHomeAdLabel();
@@ -105,5 +109,3 @@ private:
 };
 
 #endif
-
-

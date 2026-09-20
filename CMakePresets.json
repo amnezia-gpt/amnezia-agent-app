@@ -1,0 +1,131 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "binaryDir": "${sourceDir}/deploy/build/presets/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "local",
+      "inherits": "base",
+      "description": "Local first-party test configuration; provide Qt through CMAKE_PREFIX_PATH or a user preset.",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
+      }
+    },
+    {
+      "name": "local-client",
+      "inherits": "base",
+      "description": "Local desktop client configuration with first-party tests disabled.",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF"
+      }
+    },
+    {
+      "name": "ci-base",
+      "hidden": true,
+      "inherits": "base",
+      "generator": "Ninja"
+    },
+    {
+      "name": "ci",
+      "inherits": "ci-base",
+      "description": "CI first-party test configuration.",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON"
+      },
+      "environment": {
+        "CI": "1"
+      }
+    },
+    {
+      "name": "ci-client",
+      "inherits": "ci-base",
+      "description": "CI desktop client configuration with first-party tests disabled.",
+      "cacheVariables": {
+        "BUILD_TESTING": "OFF"
+      },
+      "environment": {
+        "CI": "1"
+      }
+    },
+    {
+      "name": "ci-sanitizers",
+      "inherits": "ci-base",
+      "description": "CI first-party tests with AddressSanitizer and UndefinedBehaviorSanitizer.",
+      "cacheVariables": {
+        "BUILD_TESTING": "ON",
+        "CMAKE_CXX_FLAGS": "-fsanitize=address,undefined -fno-omit-frame-pointer",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=address,undefined"
+      },
+      "environment": {
+        "CI": "1"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "local",
+      "configurePreset": "local",
+      "jobs": 2
+    },
+    {
+      "name": "local-client",
+      "configurePreset": "local-client",
+      "jobs": 2
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci"
+    },
+    {
+      "name": "ci-client",
+      "configurePreset": "ci-client"
+    },
+    {
+      "name": "ci-sanitizers",
+      "configurePreset": "ci-sanitizers"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "local",
+      "configurePreset": "local",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "ci",
+      "configurePreset": "ci",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    },
+    {
+      "name": "ci-sanitizers",
+      "configurePreset": "ci-sanitizers",
+      "output": {
+        "outputOnFailure": true
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
+    }
+  ]
+}

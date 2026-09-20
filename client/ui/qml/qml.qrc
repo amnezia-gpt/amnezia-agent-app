@@ -91,6 +91,7 @@
         <file>Pages2/PageServiceDnsSettings.qml</file>
         <file>Pages2/PageServiceMtProxySettings.qml</file>
         <file>Pages2/PageServiceTelemtSettings.qml</file>
+        <file>Pages2/PageServiceAgentWorkloadSettings.qml</file>
         <file>Pages2/PageServiceSftpSettings.qml</file>
         <file>Pages2/PageServiceSocksProxySettings.qml</file>
         <file>Pages2/PageServiceTorWebsiteSettings.qml</file>
@@ -146,4 +147,3 @@
         <file>Components/SmartScroll.qml</file>
     </qresource>
 </RCC>
-

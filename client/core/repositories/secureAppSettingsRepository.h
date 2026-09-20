@@ -63,6 +63,10 @@ public:
     void setDevGatewayEndpoint();
     bool isDevGatewayEnv(bool isTestPurchase = false) const;
     void toggleDevGatewayEnv(bool enabled);
+    QString agentWorkloadEnvironment() const;
+    void setAgentWorkloadEnvironment(const QString &environment);
+    QVariantMap localAgentBackendProfile() const;
+    bool saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl);
     QByteArray readGatewayProxyUrls(const QString &cacheKey) const;
     void writeGatewayProxyUrls(const QString &cacheKey, const QByteArray &proxyUrlsEncrypted);
 
@@ -123,4 +127,3 @@ private:
 };
 
 #endif // SECUREAPPSETTINGSREPOSITORY_H
-

@@ -33,6 +33,8 @@ namespace amnezia
             Socks5Proxy,
             MtProxy,
             Telemt,
+            AmgptAuthProxy = 13,
+            OpenClawCodex = 14,
         };
         Q_ENUM_NS(Proto)
 
@@ -48,5 +50,3 @@ namespace amnezia
 }
 
 #endif // PROTOCOLENUM_H
-
-

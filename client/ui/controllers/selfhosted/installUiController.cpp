@@ -3,58 +3,51 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QEventLoop>
+#include <QFutureWatcher>
 #include <QJsonObject>
 #include <QRandomGenerator>
 #include <QRegularExpression>
 #include <QStandardPaths>
-#include <QFutureWatcher>
 #include <QtConcurrent>
 #include <utility>
 
-#include "core/utils/api/apiUtils.h"
-#include "core/controllers/selfhosted/installController.h"
 #include "core/controllers/connectionController.h"
-#include "core/utils/networkUtilities.h"
-#include "core/utils/protocolEnum.h"
+#include "core/controllers/selfhosted/installController.h"
 #include "core/protocols/protocolUtils.h"
+#include "core/utils/api/apiUtils.h"
 #include "core/utils/constants/configKeys.h"
 #include "core/utils/constants/protocolConstants.h"
+#include "core/utils/networkUtilities.h"
+#include "core/utils/protocolEnum.h"
 #include "ui/models/protocols/awgConfigModel.h"
-#include "ui/models/protocols/wireguardConfigModel.h"
 #include "ui/models/protocols/openvpnConfigModel.h"
+#include "ui/models/protocols/wireguardConfigModel.h"
 #include "ui/models/protocols/xrayConfigModel.h"
 #ifdef Q_OS_WINDOWS
-#include "ui/models/protocols/ikev2ConfigModel.h"
+    #include "ui/models/protocols/ikev2ConfigModel.h"
 #endif
+#include "core/models/containerConfig.h"
+#include "core/models/protocols/awgProtocolConfig.h"
+#include "core/models/protocols/openVpnProtocolConfig.h"
+#include "core/models/protocols/wireGuardProtocolConfig.h"
+#include "core/models/protocols/xrayProtocolConfig.h"
+#include "core/utils/utilities.h"
 #include "ui/models/services/sftpConfigModel.h"
 #include "ui/models/services/socks5ProxyConfigModel.h"
 #include "ui/models/services/torConfigModel.h"
-#include "core/utils/utilities.h"
-#include "core/models/containerConfig.h"
-#include "core/models/protocols/awgProtocolConfig.h"
-#include "core/models/protocols/wireGuardProtocolConfig.h"
-#include "core/models/protocols/openVpnProtocolConfig.h"
-#include "core/models/protocols/xrayProtocolConfig.h"
 
-InstallUiController::InstallUiController(InstallController *installController,
-                                         ServersController *serversController,
-                                         SettingsController *settingsController,
-                                         ProtocolsModel *protocolsModel,
-                                         UsersController *usersController,
-                                         AwgConfigModel *awgConfigModel,
+InstallUiController::InstallUiController(InstallController *installController, ServersController *serversController,
+                                         SettingsController *settingsController, ProtocolsModel *protocolsModel,
+                                         UsersController *usersController, AwgConfigModel *awgConfigModel,
                                          WireGuardConfigModel *wireGuardConfigModel,
-                                         OpenVpnConfigModel *openVpnConfigModel,
-                                         XrayConfigModel *xrayConfigModel,
+                                         OpenVpnConfigModel *openVpnConfigModel, XrayConfigModel *xrayConfigModel,
                                          TorConfigModel *torConfigModel,
 #ifdef Q_OS_WINDOWS
                                          Ikev2ConfigModel *ikev2ConfigModel,
 #endif
-                                         SftpConfigModel *sftpConfigModel,
-                                         Socks5ProxyConfigModel *socks5ConfigModel,
-                                         MtProxyConfigModel* mtConfigModel,
-                                         TelemtConfigModel *telemtConfigModel,
-                                         ConnectionController *connectionController,
-                                         QObject *parent)
+                                         SftpConfigModel *sftpConfigModel, Socks5ProxyConfigModel *socks5ConfigModel,
+                                         MtProxyConfigModel *mtConfigModel, TelemtConfigModel *telemtConfigModel,
+                                         ConnectionController *connectionController, QObject *parent)
     : QObject(parent),
       m_installController(installController),
       m_serversController(serversController),
@@ -76,17 +69,150 @@ InstallUiController::InstallUiController(InstallController *installController,
       m_connectionController(connectionController)
 {
     connect(m_installController, &InstallController::configValidated, this, &InstallUiController::configValidated);
-    connect(m_installController, &InstallController::validationErrorOccurred, this, &InstallUiController::installationErrorOccurred);
+    connect(m_installController, &InstallController::validationErrorOccurred, this,
+            &InstallUiController::installationErrorOccurred);
 }
 
 InstallUiController::~InstallUiController()
 {
 }
 
-void InstallUiController::install(DockerContainer container, int port, TransportProto transportProto, const QString &serverId)
+int InstallUiController::amgptAuthProxyContainerIndex() const
+{
+    return static_cast<int>(DockerContainer::AmgptAuthProxy);
+}
+
+namespace
+{
+bool isAgentWorkloadContainer(DockerContainer container)
+{
+    return container == DockerContainer::AmgptAuthProxy || container == DockerContainer::OpenClawCodex;
+}
+
+QString reconciliationReasonMessage(AgentWorkloadReconciliationReason reason)
+{
+    switch (reason) {
+    case AgentWorkloadReconciliationReason::ContainerMissing: return QObject::tr("Workload is not installed");
+    case AgentWorkloadReconciliationReason::EquivalentAndRunning: return QObject::tr("Workload is running and up to date");
+    case AgentWorkloadReconciliationReason::EquivalentButStopped: return QObject::tr("Workload is stopped");
+    case AgentWorkloadReconciliationReason::DeclarationDrift:
+    case AgentWorkloadReconciliationReason::ImageDrift:
+    case AgentWorkloadReconciliationReason::RuntimeConfigurationDrift:
+        return QObject::tr("Workload needs repair or update");
+    case AgentWorkloadReconciliationReason::ContainerOwnedByOther:
+        return QObject::tr("The container name is used by an unmanaged deployment");
+    case AgentWorkloadReconciliationReason::HostPortInUse:
+        return QObject::tr("The selected host port is already in use");
+    case AgentWorkloadReconciliationReason::ContainerUnhealthy:
+        return QObject::tr("Workload is unhealthy and needs repair");
+    case AgentWorkloadReconciliationReason::ContainerHealthPending:
+        return QObject::tr("Workload health is not ready yet. Refresh shortly");
+    case AgentWorkloadReconciliationReason::ContainerLifecycleIndeterminate:
+        return QObject::tr("Workload state is changing. Refresh shortly");
+    case AgentWorkloadReconciliationReason::ObservationCommandFailed:
+    case AgentWorkloadReconciliationReason::ObservationOutputTooLarge:
+    case AgentWorkloadReconciliationReason::ObservationUnsupportedSchema:
+    case AgentWorkloadReconciliationReason::ObservationTargetMismatch:
+    case AgentWorkloadReconciliationReason::ObservationInvalid:
+        return QObject::tr("Unable to determine the remote workload state");
+    }
+    return QObject::tr("Remote workload state is unknown");
+}
+
+    QString applyResultMessage(const AgentWorkloadApplyResult &result)
+    {
+        if (result.transportError == ErrorCode::ServerCancelInstallation) {
+            return QObject::tr("Operation cancelled. The remote state may have changed; refresh it before retrying");
+        }
+        switch (result.status) {
+        case AgentWorkloadApplyStatus::Applied: return QObject::tr("Workload state applied successfully");
+        case AgentWorkloadApplyStatus::NoOp: return QObject::tr("Workload is already up to date");
+        case AgentWorkloadApplyStatus::Unknown:
+            return QObject::tr("The remote result is unknown. Refresh the workload state before retrying");
+        case AgentWorkloadApplyStatus::Failed: return QObject::tr("Unable to apply the workload state");
+        }
+        return QObject::tr("Unable to apply the workload state");
+    }
+
+    QString lifecycleResultMessage(const AgentWorkloadLifecycleResult &result)
+    {
+        if (result.transportError == ErrorCode::ServerCancelInstallation) {
+            return QObject::tr("Operation cancelled. The remote state may have changed; refresh it before retrying");
+        }
+        switch (result.status) {
+        case AgentWorkloadLifecycleStatus::Applied: return QObject::tr("Workload stopped successfully");
+        case AgentWorkloadLifecycleStatus::NoOp: return QObject::tr("Workload is already stopped or absent");
+        case AgentWorkloadLifecycleStatus::Conflict:
+            return QObject::tr("The container is not managed by this Amnezia deployment");
+        case AgentWorkloadLifecycleStatus::Unknown:
+            return QObject::tr("The remote result is unknown. Refresh the workload state before retrying");
+        case AgentWorkloadLifecycleStatus::Failed: return QObject::tr("Unable to change the workload state");
+        }
+        return QObject::tr("Unable to change the workload state");
+    }
+
+    QString loginPreconditionMessage(AgentWorkloadLoginPrecondition precondition)
+    {
+        switch (precondition) {
+        case AgentWorkloadLoginPrecondition::None: return {};
+        case AgentWorkloadLoginPrecondition::InvalidRequest:
+            return QObject::tr("Unable to use the saved workload configuration");
+        case AgentWorkloadLoginPrecondition::OpenClawNotReady:
+            return QObject::tr("OpenClaw is not healthy and up to date. Repair it before signing in");
+        case AgentWorkloadLoginPrecondition::AuthProxyMissing:
+            return QObject::tr("Install Amnezia GPT Proxy before signing in with Amnezia GPT");
+        case AgentWorkloadLoginPrecondition::AuthProxyNotReady:
+            return QObject::tr("Amnezia GPT Proxy is not healthy and up to date. Repair it before signing in");
+        }
+        return QObject::tr("Unable to start sign-in");
+    }
+
+    QString loginOperationMessage(AgentWorkloadLoginOperationError error)
+    {
+        switch (error) {
+        case AgentWorkloadLoginOperationError::None:
+            return QObject::tr("Open the authorization page and approve this device");
+        case AgentWorkloadLoginOperationError::InvalidTarget:
+            return QObject::tr("Unable to use the saved OpenClaw configuration");
+        case AgentWorkloadLoginOperationError::WorkloadNotReady:
+            return QObject::tr("OpenClaw is not healthy and up to date");
+        case AgentWorkloadLoginOperationError::ObservationFailed:
+            return QObject::tr("Unable to determine the OpenClaw state");
+        case AgentWorkloadLoginOperationError::CommandFailed:
+            return QObject::tr("Unable to run the remote sign-in command");
+        case AgentWorkloadLoginOperationError::OutputTooLarge:
+        case AgentWorkloadLoginOperationError::InvalidResponse:
+            return QObject::tr("OpenClaw returned an invalid sign-in response");
+        case AgentWorkloadLoginOperationError::RemoteFailure:
+            return QObject::tr("The sign-in provider rejected the request");
+        }
+        return QObject::tr("Unable to start sign-in");
+    }
+
+    QString loginStatusMessage(const AgentWorkloadLoginStatusResult &result)
+    {
+        if (result.error != AgentWorkloadLoginOperationError::None || !result.status) {
+            return loginOperationMessage(result.error);
+        }
+        switch (result.status->state) {
+        case AgentWorkloadLoginState::LoginRequired: return QObject::tr("Sign-in is required");
+        case AgentWorkloadLoginState::Pending: return QObject::tr("Waiting for authorization");
+        case AgentWorkloadLoginState::Ready: return QObject::tr("Signed in and ready");
+        case AgentWorkloadLoginState::Failed: return QObject::tr("Sign-in failed");
+        case AgentWorkloadLoginState::Cancelled: return QObject::tr("Sign-in was cancelled");
+        case AgentWorkloadLoginState::Expired: return QObject::tr("The authorization request expired");
+        case AgentWorkloadLoginState::Denied: return QObject::tr("Authorization was denied");
+        case AgentWorkloadLoginState::RuntimeUnavailable: return QObject::tr("The sign-in runtime is unavailable");
+        }
+        return QObject::tr("Unable to determine sign-in status");
+    }
+} // namespace
+
+void InstallUiController::install(DockerContainer container, int port, TransportProto transportProto,
+                                  const QString &serverId)
 {
     const bool isNewServer = serverId.isEmpty();
-    
+
     ServerCredentials serverCredentials;
     if (isNewServer) {
         serverCredentials = m_processedServerCredentials;
@@ -106,7 +232,8 @@ void InstallUiController::install(DockerContainer container, int port, Transport
         }
 
         bool wasContainerInstalled = false;
-        errorCode = m_installController->installServer(serverCredentials, container, port, transportProto, wasContainerInstalled);
+        errorCode = m_installController->installServer(serverCredentials, container, port, transportProto,
+                                                       wasContainerInstalled);
         if (errorCode) {
             emit installationErrorOccurred(errorCode);
             return;
@@ -124,7 +251,8 @@ void InstallUiController::install(DockerContainer container, int port, Transport
         if (wasContainerInstalled) {
             finishMessage = tr("%1 installed successfully. ").arg(ContainerUtils::containerHumanNames().value(container));
         } else {
-            finishMessage = tr("%1 is already installed on the server. ").arg(ContainerUtils::containerHumanNames().value(container));
+            finishMessage = tr("%1 is already installed on the server. ")
+                                    .arg(ContainerUtils::containerHumanNames().value(container));
         }
 
         if (containersCount > 1) {
@@ -146,8 +274,8 @@ void InstallUiController::install(DockerContainer container, int port, Transport
         int containersCount = containers.size();
 
         bool wasContainerInstalled = false;
-        errorCode = m_installController->installContainer(serverId, container, port, transportProto,
-                                                          wasContainerInstalled);
+        errorCode =
+                m_installController->installContainer(serverId, container, port, transportProto, wasContainerInstalled);
         if (errorCode) {
             emit installationErrorOccurred(errorCode);
             return;
@@ -166,7 +294,8 @@ void InstallUiController::install(DockerContainer container, int port, Transport
         if (wasContainerInstalled) {
             finishMessage = tr("%1 installed successfully. ").arg(ContainerUtils::containerHumanNames().value(container));
         } else {
-            finishMessage = tr("%1 is already installed on the server. ").arg(ContainerUtils::containerHumanNames().value(container));
+            finishMessage = tr("%1 is already installed on the server. ")
+                                    .arg(ContainerUtils::containerHumanNames().value(container));
         }
 
         if (hasNewContainers) {
@@ -212,7 +341,8 @@ void InstallUiController::scanServerForInstalledContainers(const QString &server
     emit installationErrorOccurred(errorCode);
 }
 
-bool InstallUiController::buildContainerConfigFromModel(int containerIndex, int protocolIndex, ContainerConfig &containerConfig)
+bool InstallUiController::buildContainerConfigFromModel(int containerIndex, int protocolIndex,
+                                                        ContainerConfig &containerConfig)
 {
     DockerContainer container = static_cast<DockerContainer>(containerIndex);
     Proto protocolType = static_cast<Proto>(protocolIndex);
@@ -263,13 +393,13 @@ bool InstallUiController::buildContainerConfigFromModel(int containerIndex, int 
         break;
     }
 #endif
-    default:
-        return false;
+    default: return false;
     }
     return true;
 }
 
-void InstallUiController::updateClientConfig(const QString &serverId, int containerIndex, int protocolIndex, bool closePage)
+void InstallUiController::updateClientConfig(const QString &serverId, int containerIndex, int protocolIndex,
+                                             bool closePage)
 {
     DockerContainer container = static_cast<DockerContainer>(containerIndex);
     Proto protocolType = static_cast<Proto>(protocolIndex);
@@ -292,7 +422,8 @@ void InstallUiController::updateClientConfig(const QString &serverId, int contai
     emit installationErrorOccurred(errorCode);
 }
 
-void InstallUiController::updateServerConfig(const QString &serverId, int containerIndex, int protocolIndex, bool closePage)
+void InstallUiController::updateServerConfig(const QString &serverId, int containerIndex, int protocolIndex,
+                                             bool closePage)
 {
     DockerContainer container = static_cast<DockerContainer>(containerIndex);
     Proto protocolType = static_cast<Proto>(protocolIndex);
@@ -323,7 +454,8 @@ void InstallUiController::updateServerConfig(const QString &serverId, int contai
                                  const ContainerConfig updatedConfig =
                                          m_serversController->getContainerConfig(serverId, container);
                                  m_protocolModel->updateModel(updatedConfig);
-                                 updateProtocolConfigModel(serverId, static_cast<int>(container), static_cast<int>(protocolTypeCopy));
+                                 updateProtocolConfigModel(serverId, static_cast<int>(container),
+                                                           static_cast<int>(protocolTypeCopy));
                                  emit updateContainerFinished(tr("Settings updated successfully"), closePage);
                              } else {
                                  emit installationErrorOccurred(errorCode);
@@ -333,16 +465,16 @@ void InstallUiController::updateServerConfig(const QString &serverId, int contai
         ContainerConfig newConfigCopy = containerConfig;
         ContainerConfig oldConfigCopy = oldContainerConfig;
         InstallController *installController = m_installController;
-        QFuture<ErrorCode> future =
-                QtConcurrent::run([installController, serverId, container, oldConfigCopy,
-                                   newConfigCopy]() mutable -> ErrorCode {
+        QFuture<ErrorCode> future = QtConcurrent::run(
+                [installController, serverId, container, oldConfigCopy, newConfigCopy]() mutable -> ErrorCode {
                     return installController->updateServerConfig(serverId, container, oldConfigCopy, newConfigCopy);
                 });
         watcher->setFuture(future);
         return;
     }
 
-    ErrorCode errorCode = m_installController->updateServerConfig(serverId, container, oldContainerConfig, containerConfig);
+    ErrorCode errorCode =
+            m_installController->updateServerConfig(serverId, container, oldContainerConfig, containerConfig);
 
     if (errorCode == ErrorCode::NoError) {
         ContainerConfig updatedConfig = m_serversController->getContainerConfig(serverId, container);
@@ -366,20 +498,19 @@ void InstallUiController::setContainerEnabled(const QString &serverId, int conta
 
     InstallController *installController = m_installController;
     auto *watcher = new QFutureWatcher<ErrorCode>(this);
-    QObject::connect(watcher, &QFutureWatcher<ErrorCode>::finished, this,
-                     [this, watcher, serverId, container, enabled]() {
-                         const ErrorCode errorCode = watcher->result();
-                         watcher->deleteLater();
-                         emit serverIsBusy(false);
+    QObject::connect(watcher, &QFutureWatcher<ErrorCode>::finished, this, [this, watcher, serverId, container, enabled]() {
+        const ErrorCode errorCode = watcher->result();
+        watcher->deleteLater();
+        emit serverIsBusy(false);
 
-                         if (errorCode == ErrorCode::NoError) {
-                             const ContainerConfig currentConfig = m_serversController->getContainerConfig(serverId, container);
-                             m_protocolModel->updateModel(currentConfig);
-                             emit setContainerEnabledFinished(enabled);
-                             return;
-                         }
-                         emit installationErrorOccurred(errorCode);
-                     });
+        if (errorCode == ErrorCode::NoError) {
+            const ContainerConfig currentConfig = m_serversController->getContainerConfig(serverId, container);
+            m_protocolModel->updateModel(currentConfig);
+            emit setContainerEnabledFinished(enabled);
+            return;
+        }
+        emit installationErrorOccurred(errorCode);
+    });
     QFuture<ErrorCode> future = QtConcurrent::run([installController, serverId, container, enabled]() -> ErrorCode {
         return installController->setDockerContainerEnabledState(serverId, container, enabled);
     });
@@ -412,6 +543,132 @@ void InstallUiController::refreshContainerStatus(const QString &serverId, int co
     watcher->setFuture(future);
 }
 
+void InstallUiController::refreshAgentWorkloadState(const QString &serverId, int containerIndex)
+{
+    const DockerContainer container = static_cast<DockerContainer>(containerIndex);
+    if (!isAgentWorkloadContainer(container)) {
+        return;
+    }
+    emit serverIsBusy(true);
+    InstallController *controller = m_installController;
+    auto *watcher = new QFutureWatcher<AgentWorkloadControllerResult>(this);
+    connect(watcher, &QFutureWatcher<AgentWorkloadControllerResult>::finished, this, [this, watcher]() {
+        const AgentWorkloadControllerResult result = watcher->result();
+        watcher->deleteLater();
+        emit serverIsBusy(false);
+        emit agentWorkloadStateRefreshed(static_cast<int>(result.plan.action), static_cast<int>(result.plan.reason),
+                                         reconciliationReasonMessage(result.plan.reason));
+    });
+    watcher->setFuture(QtConcurrent::run(
+            [controller, serverId, container] { return controller->inspectAgentWorkload(serverId, container); }));
+}
+
+void InstallUiController::reconcileAgentWorkload(const QString &serverId, int containerIndex)
+{
+    const DockerContainer container = static_cast<DockerContainer>(containerIndex);
+    if (!isAgentWorkloadContainer(container)) {
+        return;
+    }
+    emit serverIsBusy(true);
+    InstallController *controller = m_installController;
+    auto *watcher = new QFutureWatcher<AgentWorkloadControllerResult>(this);
+    connect(watcher, &QFutureWatcher<AgentWorkloadControllerResult>::finished, this, [this, watcher]() {
+        const AgentWorkloadControllerResult result = watcher->result();
+        watcher->deleteLater();
+        emit serverIsBusy(false);
+        emit agentWorkloadReconcileFinished(
+                static_cast<int>(result.plan.action), static_cast<int>(result.plan.reason),
+                static_cast<int>(result.applyResult.status), static_cast<int>(result.applyResult.reason),
+                static_cast<int>(result.applyResult.transportError), applyResultMessage(result.applyResult));
+    });
+    watcher->setFuture(QtConcurrent::run(
+            [controller, serverId, container] { return controller->reconcileAgentWorkload(serverId, container); }));
+}
+
+void InstallUiController::stopAgentWorkload(const QString &serverId, int containerIndex)
+{
+    const DockerContainer container = static_cast<DockerContainer>(containerIndex);
+    if (!isAgentWorkloadContainer(container)) {
+        return;
+    }
+    emit serverIsBusy(true);
+    InstallController *controller = m_installController;
+    auto *watcher = new QFutureWatcher<AgentWorkloadLifecycleResult>(this);
+    connect(watcher, &QFutureWatcher<AgentWorkloadLifecycleResult>::finished, this, [this, watcher]() {
+        const AgentWorkloadLifecycleResult result = watcher->result();
+        watcher->deleteLater();
+        emit serverIsBusy(false);
+        emit agentWorkloadLifecycleFinished(static_cast<int>(result.status), static_cast<int>(result.reason),
+                                            static_cast<int>(result.transportError), lifecycleResultMessage(result));
+    });
+    watcher->setFuture(QtConcurrent::run(
+            [controller, serverId, container] { return controller->stopAgentWorkload(serverId, container); }));
+}
+
+void InstallUiController::startAgentWorkloadLogin(const QString &serverId, int modeValue)
+{
+    if (modeValue < static_cast<int>(AgentWorkloadLoginMode::Native)
+        || modeValue > static_cast<int>(AgentWorkloadLoginMode::Amgpt)) {
+        return;
+    }
+    const auto mode = static_cast<AgentWorkloadLoginMode>(modeValue);
+    emit serverIsBusy(true);
+    InstallController *controller = m_installController;
+    auto *watcher = new QFutureWatcher<AgentWorkloadLoginControllerResult>(this);
+    connect(watcher, &QFutureWatcher<AgentWorkloadLoginControllerResult>::finished, this,
+            [this, watcher, modeValue]() {
+                const AgentWorkloadLoginControllerResult result = watcher->result();
+                watcher->deleteLater();
+                emit serverIsBusy(false);
+                QString verificationUrl;
+                QString userCode;
+                int expiresInSeconds = -1;
+                if (result.startResult.presentation) {
+                    verificationUrl = result.startResult.presentation->preferredUrl().toString(QUrl::FullyEncoded);
+                    userCode = result.startResult.presentation->userCode;
+                    expiresInSeconds = result.startResult.presentation->expiresInSeconds.value_or(-1);
+                }
+                const QString message = result.precondition == AgentWorkloadLoginPrecondition::None
+                        ? loginOperationMessage(result.startResult.error)
+                        : loginPreconditionMessage(result.precondition);
+                emit agentWorkloadLoginStarted(modeValue, static_cast<int>(result.precondition),
+                                               static_cast<int>(result.startResult.error), verificationUrl, userCode,
+                                               expiresInSeconds, message);
+            });
+    watcher->setFuture(QtConcurrent::run(
+            [controller, serverId, mode] { return controller->startAgentWorkloadLogin(serverId, mode); }));
+}
+
+void InstallUiController::refreshAgentWorkloadLoginStatus(const QString &serverId, int modeValue)
+{
+    if (modeValue < static_cast<int>(AgentWorkloadLoginMode::Native)
+        || modeValue > static_cast<int>(AgentWorkloadLoginMode::Amgpt)) {
+        return;
+    }
+    const auto mode = static_cast<AgentWorkloadLoginMode>(modeValue);
+    emit serverIsBusy(true);
+    InstallController *controller = m_installController;
+    auto *watcher = new QFutureWatcher<AgentWorkloadLoginStatusResult>(this);
+    connect(watcher, &QFutureWatcher<AgentWorkloadLoginStatusResult>::finished, this, [this, watcher, modeValue]() {
+        const AgentWorkloadLoginStatusResult result = watcher->result();
+        watcher->deleteLater();
+        emit serverIsBusy(false);
+        const int state = result.status ? static_cast<int>(result.status->state)
+                                        : static_cast<int>(AgentWorkloadLoginState::Failed);
+        emit agentWorkloadLoginStatusRefreshed(modeValue, state,
+                                               result.status && result.status->authenticated,
+                                               static_cast<int>(result.error), loginStatusMessage(result));
+    });
+    watcher->setFuture(QtConcurrent::run(
+            [controller, serverId, mode] { return controller->queryAgentWorkloadLoginStatus(serverId, mode); }));
+}
+
+bool InstallUiController::openAgentWorkloadVerificationUrl(const QString &url)
+{
+    const QUrl parsed = QUrl::fromEncoded(url.toUtf8(), QUrl::StrictMode);
+    return isSafeAgentWorkloadVerificationUrl(parsed) && QDesktopServices::openUrl(parsed);
+}
+
 void InstallUiController::refreshContainerDiagnostics(const QString &serverId, int containerIndex, int port)
 {
     const DockerContainer container = static_cast<DockerContainer>(containerIndex);
@@ -433,12 +690,11 @@ void InstallUiController::refreshContainerDiagnostics(const QString &serverId, i
         emit containerDiagnosticsRefreshed(diag.portReachable, diag.upstreamReachable, diag.clientsConnected,
                                            diag.lastConfigRefresh, diag.statsEndpoint);
     });
-    QFuture<DiagResult> future =
-            QtConcurrent::run([installController, serverId, container, port]() -> DiagResult {
-                MtProxyContainerDiagnostics diag;
-                const ErrorCode errorCode = installController->queryMtProxyDiagnostics(serverId, container, port, diag);
-                return { errorCode == ErrorCode::NoError, diag };
-            });
+    QFuture<DiagResult> future = QtConcurrent::run([installController, serverId, container, port]() -> DiagResult {
+        MtProxyContainerDiagnostics diag;
+        const ErrorCode errorCode = installController->queryMtProxyDiagnostics(serverId, container, port, diag);
+        return { errorCode == ErrorCode::NoError, diag };
+    });
     watcher->setFuture(future);
 }
 
@@ -524,10 +780,9 @@ void InstallUiController::removeContainer(const QString &serverId, int container
                          });
 
         InstallController *installController = m_installController;
-        QFuture<ErrorCode> future = QtConcurrent::run(
-                [installController, serverId, container]() -> ErrorCode {
-                    return installController->removeContainer(serverId, container);
-                });
+        QFuture<ErrorCode> future = QtConcurrent::run([installController, serverId, container]() -> ErrorCode {
+            return installController->removeContainer(serverId, container);
+        });
         watcher->setFuture(future);
         return;
     }
@@ -565,7 +820,8 @@ void InstallUiController::clearProcessedServerCredentials()
     m_processedServerCredentials = ServerCredentials();
 }
 
-void InstallUiController::setProcessedServerCredentials(const QString &hostName, const QString &userName, const QString &secretData)
+void InstallUiController::setProcessedServerCredentials(const QString &hostName, const QString &userName,
+                                                        const QString &secretData)
 {
     m_processedServerCredentials.hostName = hostName;
     if (m_processedServerCredentials.hostName.contains(":")) {
@@ -576,7 +832,8 @@ void InstallUiController::setProcessedServerCredentials(const QString &hostName,
     m_processedServerCredentials.secretData = secretData;
 }
 
-void InstallUiController::mountSftpDrive(const QString &serverId, const QString &port, const QString &password, const QString &username)
+void InstallUiController::mountSftpDrive(const QString &serverId, const QString &port, const QString &password,
+                                         const QString &username)
 {
     ServerCredentials serverCredentials = m_serversController->getServerCredentials(serverId);
     ErrorCode errorCode = m_installController->mountSftpDrive(serverCredentials, port, password, username);
@@ -598,7 +855,8 @@ bool InstallUiController::checkSshConnection()
     };
 
     QString output;
-    ErrorCode errorCode = m_installController->checkSshConnection(m_processedServerCredentials, output, passphraseCallback);
+    ErrorCode errorCode =
+            m_installController->checkSshConnection(m_processedServerCredentials, output, passphraseCallback);
 
     if (errorCode != ErrorCode::NoError) {
         emit installationErrorOccurred(errorCode);
@@ -696,8 +954,9 @@ void InstallUiController::updateProtocolConfigModel(const QString &serverId, int
     containerConfig.container = container;
     Proto protocolType = static_cast<Proto>(protocolIndex);
 
-    auto updateIfPresent = [&](auto* model, auto* config) {
-        if (model && config) model->updateModel(container, *config);
+    auto updateIfPresent = [&](auto *model, auto *config) {
+        if (model && config)
+            model->updateModel(container, *config);
     };
 
     switch (protocolType) {
@@ -708,7 +967,9 @@ void InstallUiController::updateProtocolConfigModel(const QString &serverId, int
     case Proto::SSXray: updateIfPresent(m_xrayConfigModel, containerConfig.getXrayProtocolConfig()); break;
     case Proto::TorWebSite: updateIfPresent(m_torConfigModel, containerConfig.getTorProtocolConfig()); break;
     case Proto::Sftp: updateIfPresent(m_sftpConfigModel, containerConfig.getSftpProtocolConfig()); break;
-    case Proto::Socks5Proxy: updateIfPresent(m_socks5ConfigModel, containerConfig.getSocks5ProxyProtocolConfig()); break;
+    case Proto::Socks5Proxy:
+        updateIfPresent(m_socks5ConfigModel, containerConfig.getSocks5ProxyProtocolConfig());
+        break;
     case Proto::MtProxy: updateIfPresent(m_mtProxyConfigModel, containerConfig.getMtProxyProtocolConfig()); break;
     case Proto::Telemt: updateIfPresent(m_telemtConfigModel, containerConfig.getTelemtProtocolConfig()); break;
 #ifdef Q_OS_WINDOWS

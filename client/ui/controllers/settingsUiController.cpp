@@ -332,6 +332,29 @@ bool SettingsUiController::isDevGatewayEnv()
     return m_settingsController->isDevGatewayEnv();
 }
 
+QString SettingsUiController::agentWorkloadEnvironment()
+{
+    return m_settingsController->agentWorkloadEnvironment();
+}
+
+QVariantMap SettingsUiController::localAgentBackendProfile()
+{
+    return m_settingsController->localAgentBackendProfile();
+}
+
+bool SettingsUiController::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl)
+{
+    if (!m_settingsController->saveLocalAgentBackendProfile(authIssuer, routerBaseUrl)) return false;
+    emit localAgentBackendProfileChanged();
+    return true;
+}
+
+void SettingsUiController::setAgentWorkloadEnvironment(const QString &environment)
+{
+    m_settingsController->setAgentWorkloadEnvironment(environment);
+    emit agentWorkloadEnvironmentChanged();
+}
+
 void SettingsUiController::toggleDevGatewayEnv(bool enabled)
 {
     m_settingsController->toggleDevGatewayEnv(enabled);

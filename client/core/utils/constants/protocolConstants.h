@@ -196,7 +196,8 @@ namespace amnezia
             constexpr char defaultResponsePacketMagicHeader[] = "2";
             constexpr char defaultUnderloadPacketMagicHeader[] = "3";
             constexpr char defaultTransportPacketMagicHeader[] = "4";
-            constexpr char defaultSpecialJunk1[] = "<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>";
+            constexpr char defaultSpecialJunk1[] =
+                    "<r 2><b 0x858000010001000000000669636c6f756403636f6d0000010001c00c000100010000105a00044d583737>";
             constexpr char defaultSpecialJunk2[] = "";
             constexpr char defaultSpecialJunk3[] = "";
             constexpr char defaultSpecialJunk4[] = "";
@@ -218,7 +219,6 @@ namespace amnezia
             constexpr char awgBoolOn[] = "on";
             constexpr char awgBoolOff[] = "off";
 
-
         }
 
         namespace socks5Proxy
@@ -231,67 +231,77 @@ namespace amnezia
 
         namespace mtProxy
         {
-            constexpr char secretKey[]            = "mtproxy_secret";
-            constexpr char tagKey[]               = "mtproxy_tag";
-            constexpr char tgLinkKey[]            = "mtproxy_tg_link";
-            constexpr char tmeLinkKey[]           = "mtproxy_tme_link";
-            constexpr char isEnabledKey[]         = "mtproxy_is_enabled";
-            constexpr char publicHostKey[]        = "mtproxy_public_host";
-            constexpr char transportModeKey[]     = "mtproxy_transport_mode";
-            constexpr char tlsDomainKey[]         = "mtproxy_tls_domain";
+            constexpr char secretKey[] = "mtproxy_secret";
+            constexpr char tagKey[] = "mtproxy_tag";
+            constexpr char tgLinkKey[] = "mtproxy_tg_link";
+            constexpr char tmeLinkKey[] = "mtproxy_tme_link";
+            constexpr char isEnabledKey[] = "mtproxy_is_enabled";
+            constexpr char publicHostKey[] = "mtproxy_public_host";
+            constexpr char transportModeKey[] = "mtproxy_transport_mode";
+            constexpr char tlsDomainKey[] = "mtproxy_tls_domain";
             constexpr char additionalSecretsKey[] = "mtproxy_additional_secrets";
-            constexpr char workersKey[]           = "mtproxy_workers";
-            constexpr char workersModeKey[]       = "mtproxy_workers_mode";
-            constexpr char natEnabledKey[]        = "mtproxy_nat_enabled";
-            constexpr char natInternalIpKey[]     = "mtproxy_nat_internal_ip";
-            constexpr char natExternalIpKey[]     = "mtproxy_nat_external_ip";
+            constexpr char workersKey[] = "mtproxy_workers";
+            constexpr char workersModeKey[] = "mtproxy_workers_mode";
+            constexpr char natEnabledKey[] = "mtproxy_nat_enabled";
+            constexpr char natInternalIpKey[] = "mtproxy_nat_internal_ip";
+            constexpr char natExternalIpKey[] = "mtproxy_nat_external_ip";
 
             constexpr char transportModeStandard[] = "standard";
-            constexpr char transportModeFakeTLS[]  = "faketls";
+            constexpr char transportModeFakeTLS[] = "faketls";
 
-            constexpr char workersModeAuto[]       = "auto";
-            constexpr char workersModeManual[]     = "manual";
+            constexpr char workersModeAuto[] = "auto";
+            constexpr char workersModeManual[] = "manual";
 
-            constexpr char defaultPort[]           = "443";
-            constexpr char defaultWorkers[]        = "2";
+            constexpr char defaultPort[] = "443";
+            constexpr char defaultWorkers[] = "2";
             // mtproto-proxy loses connectivity with -M >= 20; keep the cap at the highest known-good value.
-            constexpr int  maxWorkers              = 19;
-            constexpr int  botTagHexLength         = 32;
-            constexpr char defaultTlsDomain[]      = "googletagmanager.com";
+            constexpr int maxWorkers = 19;
+            constexpr int botTagHexLength = 32;
+            constexpr char defaultTlsDomain[] = "googletagmanager.com";
         }
 
         namespace telemt
         {
-            constexpr char secretKey[]            = "telemt_secret";
-            constexpr char tagKey[]               = "telemt_tag";
-            constexpr char tgLinkKey[]            = "telemt_tg_link";
-            constexpr char tmeLinkKey[]           = "telemt_tme_link";
-            constexpr char isEnabledKey[]         = "telemt_is_enabled";
-            constexpr char publicHostKey[]        = "telemt_public_host";
-            constexpr char transportModeKey[]     = "telemt_transport_mode";
-            constexpr char tlsDomainKey[]         = "telemt_tls_domain";
-            constexpr char maskEnabledKey[]       = "telemt_mask_enabled";
-            constexpr char tlsEmulationKey[]      = "telemt_tls_emulation";
-            constexpr char useMiddleProxyKey[]    = "telemt_use_middle_proxy";
-            constexpr char userNameKey[]          = "telemt_user_name";
+            constexpr char secretKey[] = "telemt_secret";
+            constexpr char tagKey[] = "telemt_tag";
+            constexpr char tgLinkKey[] = "telemt_tg_link";
+            constexpr char tmeLinkKey[] = "telemt_tme_link";
+            constexpr char isEnabledKey[] = "telemt_is_enabled";
+            constexpr char publicHostKey[] = "telemt_public_host";
+            constexpr char transportModeKey[] = "telemt_transport_mode";
+            constexpr char tlsDomainKey[] = "telemt_tls_domain";
+            constexpr char maskEnabledKey[] = "telemt_mask_enabled";
+            constexpr char tlsEmulationKey[] = "telemt_tls_emulation";
+            constexpr char useMiddleProxyKey[] = "telemt_use_middle_proxy";
+            constexpr char userNameKey[] = "telemt_user_name";
             constexpr char additionalSecretsKey[] = "telemt_additional_secrets";
-            constexpr char workersKey[]           = "telemt_workers";
-            constexpr char workersModeKey[]       = "telemt_workers_mode";
-            constexpr char natEnabledKey[]        = "telemt_nat_enabled";
-            constexpr char natInternalIpKey[]     = "telemt_nat_internal_ip";
-            constexpr char natExternalIpKey[]     = "telemt_nat_external_ip";
+            constexpr char workersKey[] = "telemt_workers";
+            constexpr char workersModeKey[] = "telemt_workers_mode";
+            constexpr char natEnabledKey[] = "telemt_nat_enabled";
+            constexpr char natInternalIpKey[] = "telemt_nat_internal_ip";
+            constexpr char natExternalIpKey[] = "telemt_nat_external_ip";
 
             constexpr char transportModeStandard[] = "standard";
-            constexpr char transportModeFakeTLS[]  = "faketls";
+            constexpr char transportModeFakeTLS[] = "faketls";
 
-            constexpr char defaultPort[]           = "443";
-            constexpr char defaultTlsDomain[]      = "googletagmanager.com";
-            constexpr char defaultUserName[]       = "amnezia";
-            constexpr char defaultWorkers[]        = "2";
-            constexpr char workersModeAuto[]       = "auto";
-            constexpr char workersModeManual[]     = "manual";
-            constexpr int  maxWorkers              = 32;
-            constexpr int  botTagHexLength         = 32;
+            constexpr char defaultPort[] = "443";
+            constexpr char defaultTlsDomain[] = "googletagmanager.com";
+            constexpr char defaultUserName[] = "amnezia";
+            constexpr char defaultWorkers[] = "2";
+            constexpr char workersModeAuto[] = "auto";
+            constexpr char workersModeManual[] = "manual";
+            constexpr int maxWorkers = 32;
+            constexpr int botTagHexLength = 32;
+        }
+
+        namespace amgptAuthProxy
+        {
+            constexpr char defaultPort[] = "8080";
+        }
+
+        namespace openClawCodex
+        {
+            constexpr char defaultPort[] = "18789";
         }
 
     } // namespace protocols

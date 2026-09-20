@@ -54,6 +54,8 @@ ListViewType {
                     } else if (isTelemt) {
                         TelemtConfigModel.updateModel(config)
                         PageController.goToPage(PageEnum.PageServiceTelemtSettings, false)
+                    } else if (isAgentWorkload) {
+                        PageController.goToPage(PageEnum.PageServiceAgentWorkloadSettings, false)
                     } else {
                         InstallController.updateProtocols(ServersUiController.processedServerId, containerIndex)
                         PageController.goToPage(PageEnum.PageSettingsServerProtocol)

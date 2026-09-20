@@ -187,7 +187,17 @@ if [[ "$TARGET" == "android" ]]; then
 fi
 
 : ${CMAKE_BUILD_TYPE:=Release}
-: ${JOBS:=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)}
+if [[ -z "${JOBS:-}" ]]; then
+    if [[ -n "${CI:-}" ]]; then
+        JOBS=$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)
+    else
+        JOBS=${AMNEZIA_BUILD_JOBS:-2}
+    fi
+fi
+if [[ ! "$JOBS" =~ ^[1-9][0-9]*$ ]]; then
+    echo "JOBS must be a positive integer" >&2
+    exit 1
+fi
 
 args=()
 [[ -n "$CMAKE_GENERATOR" ]]           && args+=("-G" "$CMAKE_GENERATOR")
