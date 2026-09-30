@@ -83,3 +83,7 @@ select build and runtime evidence proportional to the change.
 - `just smoke agent-workloads-remote` is reserved for the explicit disposable
   remote-host scenario. It intentionally fails until GH-1 provides that
   scenario and must never be treated as a successful no-op.
+- The disposable DigitalOcean smoke host uses SSH TCP port `48273`, never the
+  default port `22`. Restrict its cloud-firewall source to the current
+  operator public IPv4 `/32`. Use an SSH key only for host bootstrap; exercise
+  the client with the `root` username and password authentication.
