@@ -235,7 +235,7 @@ PageType {
                 text: qsTr("Install")
 
                 clickedFunc: function() {
-                    if (!port.textField.acceptableInput &&
+                    if (port.visible && !port.textField.acceptableInput &&
                             ContainerProps.containerTypeToString(dockerContainer) !== "torwebsite" &&
                             ContainerProps.containerTypeToString(dockerContainer) !== "ikev2") {
                         port.errorText = qsTr("The port must be in the range of 1 to 65535")

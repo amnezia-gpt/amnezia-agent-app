@@ -50,6 +50,8 @@ QString ProtocolUtils::protoToString(Proto p)
 {
     if (p == Proto::Unknown)
         return "";
+    if (p == Proto::AmgptAuthProxy)
+        return QStringLiteral("amgptdevicegateway");
 
     QMetaEnum metaEnum = QMetaEnum::fromType<Proto>();
     QString protoKey = metaEnum.valueToKey(static_cast<int>(p));
@@ -72,7 +74,7 @@ QMap<Proto, QString> ProtocolUtils::protocolHumanNames()
         { Proto::Socks5Proxy, QObject::tr("SOCKS5 proxy server") },
         { Proto::MtProxy, QObject::tr("MTProxy (Telegram)") },
         { Proto::Telemt, QObject::tr("Telemt (Telegram)") },
-        { Proto::AmgptAuthProxy, QObject::tr("AMGPT Auth Proxy") },
+        { Proto::AmgptAuthProxy, QObject::tr("AMGPT Device Gateway") },
         { Proto::OpenClawCodex, QObject::tr("OpenClaw + Codex") },
     };
 }
@@ -137,8 +139,9 @@ int ProtocolUtils::defaultPort(Proto p)
     case Proto::Socks5Proxy: return 38080;
     case Proto::MtProxy: return QString(protocols::mtProxy::defaultPort).toInt();
     case Proto::Telemt: return QString(protocols::telemt::defaultPort).toInt();
-    case Proto::AmgptAuthProxy: return QString(protocols::amgptAuthProxy::defaultPort).toInt();
-    case Proto::OpenClawCodex: return QString(protocols::openClawCodex::defaultPort).toInt();
+    // Agent workloads publish no host port.
+    case Proto::AmgptAuthProxy: return -1;
+    case Proto::OpenClawCodex: return -1;
     default: return -1;
     }
 }
@@ -159,8 +162,8 @@ bool ProtocolUtils::defaultPortChangeable(Proto p)
     case Proto::Socks5Proxy: return true;
     case Proto::MtProxy: return true;
     case Proto::Telemt: return true;
-    case Proto::AmgptAuthProxy: return true;
-    case Proto::OpenClawCodex: return true;
+    case Proto::AmgptAuthProxy: return false;
+    case Proto::OpenClawCodex: return false;
     default: return false;
     }
 }

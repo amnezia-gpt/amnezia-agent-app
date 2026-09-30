@@ -45,7 +45,7 @@ QString amnezia::scriptFolder(amnezia::DockerContainer container)
     case DockerContainer::Socks5Proxy: return QLatin1String("socks5_proxy");
     case DockerContainer::MtProxy: return QLatin1String("mtproxy");
     case DockerContainer::Telemt: return QLatin1String("telemt");
-    case DockerContainer::AmgptAuthProxy: return QLatin1String("amgpt-auth-proxy");
+    case DockerContainer::AmgptAuthProxy: return QLatin1String("amgpt-device-gateway");
     case DockerContainer::OpenClawCodex: return QLatin1String("openclaw-codex");
     default: return QString();
     }

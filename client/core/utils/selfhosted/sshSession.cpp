@@ -36,27 +36,31 @@ namespace
 
     bool isSupportedObservationTarget(const AgentWorkloadDeploymentSpec &desired)
     {
-        const bool knownIdentity = (desired.workload == QStringLiteral("amgpt-auth-proxy")
-                                    && desired.containerName == QStringLiteral("amnezia-amgpt-auth-proxy"))
+        const bool knownIdentity = (desired.workload == QStringLiteral("amgpt-device-gateway")
+                                    && desired.containerName == QStringLiteral("amnezia-amgpt-device-gateway"))
                 || (desired.workload == QStringLiteral("openclaw-codex")
                     && desired.containerName == QStringLiteral("amnezia-openclaw-codex"));
+        if (desired.hostPort.isEmpty()) {
+            return knownIdentity;
+        }
         bool converted = false;
         const int port = desired.hostPort.toInt(&converted);
         return knownIdentity && converted && port >= 1 && port <= 65535 && desired.hostPort == QString::number(port);
     }
 
-    bool isOpenClawLoginTarget(const AgentWorkloadDeploymentSpec &desired)
+    bool isDeviceGatewayLoginTarget(const AgentWorkloadDeploymentSpec &desired)
     {
-        return desired.workload == QStringLiteral("openclaw-codex")
-                && desired.containerName == QStringLiteral("amnezia-openclaw-codex")
+        return desired.workload == QStringLiteral("amgpt-device-gateway")
+                && desired.containerName == QStringLiteral("amnezia-amgpt-device-gateway")
                 && isSupportedObservationTarget(desired);
     }
 
-    QString agentWorkloadLoginCommand(AgentWorkloadLoginMode mode, bool status)
+    QString agentWorkloadLoginCommand(bool status)
     {
-        return QStringLiteral("timeout %1s sudo -n docker exec -i amnezia-openclaw-codex workloadctl login %2 %3 --json")
-                .arg(status ? 10 : 25)
-                .arg(status ? QStringLiteral("status") : QStringLiteral("start"), agentWorkloadLoginModeName(mode));
+        return QStringLiteral("timeout %1s sudo -n docker exec -i amnezia-amgpt-device-gateway "
+                              "workloadctl login %2 amgpt --json")
+                .arg(status ? 10 : 95)
+                .arg(status ? QStringLiteral("status") : QStringLiteral("start"));
     }
 
     QString agentWorkloadObservationCommand(const AgentWorkloadDeploymentSpec &desired)
@@ -64,27 +68,34 @@ namespace
         const QString inspectFormat = QStringLiteral(
                 R"({"id":{{json .Id}},"name":{{json .Name}},"image_reference":{{json .Config.Image}},"image_id":{{json .Image}},"status":{{json .State.Status}},"running":{{json .State.Running}},"health":{{with .State.Health}}{{json .Status}}{{else}}"none"{{end}},"restart_policy":{{json .HostConfig.RestartPolicy.Name}},"mounts":[{{$first := true}}{{range .Mounts}}{{if not $first}},{{end}}{"type":{{json .Type}},"name":{{json .Name}},"destination":{{json .Destination}}}{{$first = false}}{{end}}],"tmpfs":[{{$first := true}}{{range $destination, $options := .HostConfig.Tmpfs}}{{if not $first}},{{end}}{"destination":{{json $destination}},"options":{{json $options}}}{{$first = false}}{{end}}],"networks":[{{$first := true}}{{range $name, $_ := .NetworkSettings.Networks}}{{if not $first}},{{end}}{{json $name}}{{$first = false}}{{end}}],"ports":[{{$first := true}}{{range $key, $bindings := .NetworkSettings.Ports}}{{range $binding := $bindings}}{{if not $first}},{{end}}{{$parts := split $key "/"}}{"host_ip":{{json $binding.HostIp}},"host_port":{{json $binding.HostPort}},"container_port":{{json (index $parts 0)}},"protocol":{{json (index $parts 1)}}}{{$first = false}}{{end}}{{end}}],"labels":{"org.amnezia.amgpt.deployment.managed-by":{{with index .Config.Labels "org.amnezia.amgpt.deployment.managed-by"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.workload":{{with index .Config.Labels "org.amnezia.amgpt.deployment.workload"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.schema-version":{{with index .Config.Labels "org.amnezia.amgpt.deployment.schema-version"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.workload-version":{{with index .Config.Labels "org.amnezia.amgpt.deployment.workload-version"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.spec-hash":{{with index .Config.Labels "org.amnezia.amgpt.deployment.spec-hash"}}{{json .}}{{else}}""{{end}}{{with index .Config.Labels "org.amnezia.amgpt.deployment.backend-profile"}},"org.amnezia.amgpt.deployment.backend-profile":{{json .}}{{end}}}})");
 
+        // Only a published workload probes and claims its host port.
+        const QString portProbe = desired.hostPort.isEmpty()
+                ? QStringLiteral("host_port_in_use=false; port_owners='[]'; ")
+                : QStringLiteral(
+                          "command -v lsof >/dev/null 2>&1 || exit 41; "
+                          "port_lines=$(sudo -n docker container ls -a --no-trunc --filter \"publish=${port}/tcp\" "
+                          "--format '{\"id\":{{json .ID}},\"name\":{{json .Names}}}') || exit 46; "
+                          "port_owners=$(printf '%s\\n' \"$port_lines\" | awk 'BEGIN { printf \"[\" } NF { if (seen++) "
+                          "printf \",\"; printf \"%s\", $0 } END { print \"]\" }') || exit 47; "
+                          "host_port_in_use=false; lsof_output=$(sudo -n lsof -nP -iTCP:\"$port\" -sTCP:LISTEN "
+                          "2>/dev/null); lsof_status=$?; "
+                          "if [ \"$lsof_status\" -eq 0 ]; then host_port_in_use=true; elif [ \"$lsof_status\" -ne 1 ]; "
+                          "then exit 48; fi; ");
+
         return QStringLiteral(
                        "name='%1'; workload='%2'; port='%3'; command -v docker >/dev/null 2>&1 || exit 40; "
-                       "command -v lsof >/dev/null 2>&1 || exit 41; sudo -n true >/dev/null 2>&1 || exit 42; "
+                       "sudo -n true >/dev/null 2>&1 || exit 42; "
                        "ids=$(sudo -n docker container ls -aq --no-trunc --filter \"name=^/${name}$\") || exit 43; "
                        "count=$(printf '%s\\n' \"$ids\" | awk 'NF { count++ } END { print count + 0 }'); "
                        "[ \"$count\" -le 1 ] || exit 44; container=null; "
                        "if [ -n \"$ids\" ]; then container=$(sudo -n docker container inspect "
                        "--format '%4' \"$ids\") || exit 45; fi; "
-                       "port_lines=$(sudo -n docker container ls -a --no-trunc --filter \"publish=${port}/tcp\" "
-                       "--format '{\"id\":{{json .ID}},\"name\":{{json .Names}}}') || exit 46; "
-                       "port_owners=$(printf '%s\\n' \"$port_lines\" | awk 'BEGIN { printf \"[\" } NF { if (seen++) "
-                       "printf \",\"; printf \"%s\", $0 } END { print \"]\" }') || exit 47; "
-                       "host_port_in_use=false; lsof_output=$(sudo -n lsof -nP -iTCP:\"$port\" -sTCP:LISTEN "
-                       "2>/dev/null); lsof_status=$?; "
-                       "if [ \"$lsof_status\" -eq 0 ]; then host_port_in_use=true; elif [ \"$lsof_status\" -ne 1 ]; "
-                       "then exit 48; fi; "
+                       "%5"
                        "printf "
                        "'{\"schema_version\":1,\"target\":{\"workload\":\"%s\",\"container_name\":\"%s\",\"host_port\":"
                        "\"%s\"},\"container\":%s,\"host_port_in_use\":%s,\"port_owners\":%s}\\n' "
                        "\"$workload\" \"$name\" \"$port\" \"$container\" \"$host_port_in_use\" \"$port_owners\"")
-                .arg(desired.containerName, desired.workload, desired.hostPort, inspectFormat);
+                .arg(desired.containerName, desired.workload, desired.hostPort, inspectFormat, portProbe);
     }
 
     class LibsshCommandRunner final : public ISshCommandRunner
@@ -506,19 +517,19 @@ AgentWorkloadLifecycleResult SshSession::changeAgentWorkloadLifecycle(const Serv
 }
 
 AgentWorkloadLoginStartResult SshSession::startAgentWorkloadLogin(
-        const ServerCredentials &credentials, const AgentWorkloadDeploymentSpec &openClawDesired,
+        const ServerCredentials &credentials, const AgentWorkloadDeploymentSpec &desired,
         AgentWorkloadLoginMode mode)
 {
     AgentWorkloadLoginStartResult result;
-    if (!isOpenClawLoginTarget(openClawDesired)) {
+    if (mode != AgentWorkloadLoginMode::Amgpt || !isDeviceGatewayLoginTarget(desired)) {
         return result;
     }
-    const AgentWorkloadObservationResult observation = observeAgentWorkload(credentials, openClawDesired);
+    const AgentWorkloadObservationResult observation = observeAgentWorkload(credentials, desired);
     if (observation.error != AgentWorkloadObservationError::None) {
         result.error = AgentWorkloadLoginOperationError::ObservationFailed;
         return result;
     }
-    if (planAgentWorkloadReconciliation(openClawDesired, observation).action
+    if (planAgentWorkloadReconciliation(desired, observation).action
         != AgentWorkloadReconciliationAction::NoOp) {
         result.error = AgentWorkloadLoginOperationError::WorkloadNotReady;
         return result;
@@ -536,7 +547,7 @@ AgentWorkloadLoginStartResult SshSession::startAgentWorkloadLogin(
         return ErrorCode::NoError;
     };
     const auto discard = [](const QString &, libssh::Client &) { return ErrorCode::NoError; };
-    const ErrorCode commandError = runScript(credentials, agentWorkloadLoginCommand(mode, false), capture, discard);
+    const ErrorCode commandError = runScript(credentials, agentWorkloadLoginCommand(false), capture, discard);
     if (outputTooLarge) {
         result.error = AgentWorkloadLoginOperationError::OutputTooLarge;
         return result;
@@ -561,19 +572,19 @@ AgentWorkloadLoginStartResult SshSession::startAgentWorkloadLogin(
 }
 
 AgentWorkloadLoginStatusResult SshSession::queryAgentWorkloadLoginStatus(
-        const ServerCredentials &credentials, const AgentWorkloadDeploymentSpec &openClawDesired,
+        const ServerCredentials &credentials, const AgentWorkloadDeploymentSpec &desired,
         AgentWorkloadLoginMode mode)
 {
     AgentWorkloadLoginStatusResult result;
-    if (!isOpenClawLoginTarget(openClawDesired)) {
+    if (mode != AgentWorkloadLoginMode::Amgpt || !isDeviceGatewayLoginTarget(desired)) {
         return result;
     }
-    const AgentWorkloadObservationResult observation = observeAgentWorkload(credentials, openClawDesired);
+    const AgentWorkloadObservationResult observation = observeAgentWorkload(credentials, desired);
     if (observation.error != AgentWorkloadObservationError::None) {
         result.error = AgentWorkloadLoginOperationError::ObservationFailed;
         return result;
     }
-    if (planAgentWorkloadReconciliation(openClawDesired, observation).action
+    if (planAgentWorkloadReconciliation(desired, observation).action
         != AgentWorkloadReconciliationAction::NoOp) {
         result.error = AgentWorkloadLoginOperationError::WorkloadNotReady;
         return result;
@@ -591,7 +602,7 @@ AgentWorkloadLoginStatusResult SshSession::queryAgentWorkloadLoginStatus(
         return ErrorCode::NoError;
     };
     const auto discard = [](const QString &, libssh::Client &) { return ErrorCode::NoError; };
-    const ErrorCode commandError = runScript(credentials, agentWorkloadLoginCommand(mode, true), capture, discard);
+    const ErrorCode commandError = runScript(credentials, agentWorkloadLoginCommand(true), capture, discard);
     if (outputTooLarge) {
         result.error = AgentWorkloadLoginOperationError::OutputTooLarge;
         return result;

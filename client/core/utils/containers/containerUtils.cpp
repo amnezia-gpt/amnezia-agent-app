@@ -28,7 +28,7 @@ QString ContainerUtils::containerToString(DockerContainer c)
     if (c == DockerContainer::Awg2)
         return "amnezia-awg2";
     if (c == DockerContainer::AmgptAuthProxy)
-        return "amnezia-amgpt-auth-proxy";
+        return "amnezia-amgpt-device-gateway";
     if (c == DockerContainer::OpenClawCodex)
         return "amnezia-openclaw-codex";
     QMetaEnum metaEnum = QMetaEnum::fromType<DockerContainer>();
@@ -48,7 +48,7 @@ QString ContainerUtils::containerTypeToString(DockerContainer c)
     if (c == DockerContainer::Awg2)
         return "awg";
     if (c == DockerContainer::AmgptAuthProxy)
-        return "amgpt-auth-proxy";
+        return "amgpt-device-gateway";
     if (c == DockerContainer::OpenClawCodex)
         return "openclaw-codex";
     QMetaEnum metaEnum = QMetaEnum::fromType<DockerContainer>();
@@ -88,7 +88,7 @@ QMap<DockerContainer, QString> ContainerUtils::containerHumanNames()
         { DockerContainer::Socks5Proxy, QObject::tr("SOCKS5 proxy server") },
         { DockerContainer::MtProxy, QObject::tr("MTProxy (Telegram)") },
         { DockerContainer::Telemt, QObject::tr("Telemt (Telegram)") },
-        { DockerContainer::AmgptAuthProxy, QObject::tr("AMGPT Auth Proxy") },
+        { DockerContainer::AmgptAuthProxy, QObject::tr("AMGPT Device Gateway") },
         { DockerContainer::OpenClawCodex, QObject::tr("OpenClaw + Codex") },
     };
 }
@@ -126,7 +126,8 @@ QMap<DockerContainer, QString> ContainerUtils::containerDescriptions()
         { DockerContainer::Socks5Proxy, ("") },
         { DockerContainer::MtProxy, QObject::tr("Telegram MTProto proxy server") },
         { DockerContainer::Telemt, QObject::tr("Telegram MTProto proxy (Telemt, Rust)") },
-        { DockerContainer::AmgptAuthProxy, QObject::tr("Authorization proxy for Amnezia GPT agent workloads.") },
+        { DockerContainer::AmgptAuthProxy,
+          QObject::tr("Device identity and authorization gateway for Amnezia GPT agent workloads.") },
         { DockerContainer::OpenClawCodex, QObject::tr("Self-hosted OpenClaw runtime with Codex support.") },
     };
 }
@@ -219,7 +220,7 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
           QObject::tr("Telegram MTProto proxy powered by Telemt (Rust). "
                       "Supports secure and TLS fronting modes with optional traffic masking.") },
         { DockerContainer::AmgptAuthProxy,
-          QObject::tr("Deploys the authorization proxy used by compatible agent workloads. "
+          QObject::tr("Deploys the AMGPT Device Gateway used for device authorization and compatible agent workloads. "
                       "It is installed and managed independently from the OpenClaw workload.") },
         { DockerContainer::OpenClawCodex,
           QObject::tr("Deploys a self-hosted OpenClaw runtime with Codex support. "

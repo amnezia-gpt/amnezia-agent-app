@@ -66,7 +66,7 @@ else
         --platform "$platform" \
         --network "$network_name" \
 @@NETWORK_ALIAS_ARG@@
-        --publish @@PORT@@ \
+@@PUBLISH_ARG@@
         --restart @@RESTART_POLICY@@ \
         --stop-timeout @@STOP_TIMEOUT@@ \
 @@ENV_ARGS@@

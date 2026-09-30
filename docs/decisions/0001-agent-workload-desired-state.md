@@ -11,8 +11,9 @@ scripts executed over SSH. That pipeline behaves as a small configuration
 management system, but its legacy container definitions do not expose a typed,
 versioned desired state that can later be compared with remote state.
 
-The agent proof of concept adds two independently managed workloads:
-`amgpt-auth-proxy` and `openclaw-codex`. The workload repository defines which
+The agent proof of concept adds two independently managed workloads. The
+original pair was `amgpt-auth-proxy` and `openclaw-codex`; the current external
+identity is `amgpt-device-gateway` and `openclaw-codex`. The workload repository defines which
 runtime inputs and Docker properties a released image accepts. The client must
 choose exact values, persist the user's deployment selection, and eventually
 reconcile the declaration over SSH. Backend Auth and Router coordinates form
@@ -35,7 +36,7 @@ workload. A specification includes:
 - dropped capabilities and security options;
 - an optional resolved backend profile.
 
-`amgpt-auth-proxy` receives one resolved `AgentBackendProfile` containing its
+`amgpt-device-gateway` receives one resolved `AgentBackendProfile` containing its
 profile identifier, Auth issuer and Router `/v1` base URL. All three values are
 persisted together in `AmgptAuthProxyProtocolConfig`. Profile resolution
 validates and normalizes the entire tuple before producing a desired state.
@@ -46,8 +47,8 @@ path are rejected.
 `openclaw-codex` has no backend profile, no Auth or Router environment values,
 and no backend-profile deployment label. A profile change therefore cannot
 change its desired-state hash or require its recreation. Any runtime
-connection from OpenClaw to the proxy is workload configuration on their shared
-Docker network, not an installation dependency owned by Amnezia Client.
+connection between workloads is runtime configuration on their shared Docker
+network, not an installation dependency owned by Amnezia Client.
 
 Runtime identity uses labels under `org.amnezia.amgpt.deployment.*`:
 
@@ -56,7 +57,7 @@ Runtime identity uses labels under `org.amnezia.amgpt.deployment.*`:
 - `schema-version`;
 - `workload-version`;
 - `spec-hash`;
-- `backend-profile` on `amgpt-auth-proxy` only.
+- `backend-profile` on `amgpt-device-gateway` only.
 
 The label namespace is based on the stable Amnezia organization domain rather
 than a deployment-stage hostname or Docker Hub namespace. Labels owned by the
@@ -66,7 +67,7 @@ The specification hash is lowercase hexadecimal SHA-256 over a canonical JSON
 representation of normalized desired state. Object keys and semantically
 unordered lists are sorted. Credentials and other secrets must never become
 part of the desired state or hash. Backend coordinates currently participate
-in the auth-proxy hash because they are non-secret runtime configuration, but
+in the Device Gateway hash because they are non-secret runtime configuration, but
 configuration objects containing them must not be logged as a whole.
 
 The existing `scriptsRegistry` is the rendering boundary. It converts a valid
@@ -94,7 +95,8 @@ one allowlisted, read-only command for one supported workload and receives one
 versioned JSON envelope. The command selects only container identity, lifecycle,
 health, restart policy, volumes, tmpfs mounts, networks, published ports, and
 the six deployment labels above. It also reports exact Docker owners of the
-requested published port and whether another host process is listening on it. Environment variables,
+requested published port and whether another host process is listening on it; ADR-0004 removes
+publication from the current workloads, so their observation skips this probe. Environment variables,
 arbitrary image labels, logs, and application session files are intentionally
 excluded.
 
@@ -145,17 +147,16 @@ container. A missing target is an idempotent no-op; an unmanaged exact-name
 target is a conflict. Removal preserves named volumes, the shared network, the
 sibling workload, and unrelated Docker resources.
 
-The client resolves the auth proxy's production or development backend as one
+The client resolves the Device Gateway's production or development backend as one
 atomic profile from its existing environment selection. The resolved profile
 is persisted with the container configuration and shown read-only; Auth and
 Router coordinates are not independently editable. A later environment change
 does not mutate the host in the background. It becomes desired-state drift and
 is applied only when the user explicitly requests reconciliation.
 
-Stable `v0.1.0` image coordinates are the deployment identity agreed with
-`agent-workloads`. The client must not ship this integration until those exact
-Linux/amd64 releases are publicly available. Moving `latest` or development
-tags are not acceptable fallbacks.
+Immutable digest-qualified image coordinates are the deployment identity agreed
+with `agent-workloads`. Moving `latest` or development tags are not acceptable
+fallbacks. See ADR-0003 for the Device Gateway contract migration.
 
 ## Alternatives considered
 
@@ -169,11 +170,11 @@ silently use a backend different from the client declaration.
 Rejected because mixed development and production coordinates form an invalid
 deployment and create an unnecessary user-facing configuration surface.
 
-### Make OpenClaw installation depend on auth-proxy installation
+### Make OpenClaw installation depend on Device Gateway installation
 
 Rejected because the two containers must remain independently installable and
-manageable. Amnezia GPT login may require a healthy proxy later, but that is a
-login precondition rather than a deployment dependency.
+manageable. AMGPT login is owned by the Device Gateway itself and is not an
+OpenClaw deployment dependency.
 
 ### Introduce a generic configuration-management engine
 

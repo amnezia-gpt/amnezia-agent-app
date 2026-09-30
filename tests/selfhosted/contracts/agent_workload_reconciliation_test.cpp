@@ -15,7 +15,6 @@ namespace
     AgentWorkloadDeploymentSpec authProxySpec(const QString &profile = QStringLiteral("development"))
     {
         AmgptAuthProxyProtocolConfig config;
-        config.port = QStringLiteral("8080");
         config.backendProfile = profile;
         config.authIssuer = profile == QStringLiteral("development") ? QStringLiteral("https://auth-dev.example.com")
                                                                      : QStringLiteral("https://auth.example.com");
@@ -30,10 +29,17 @@ namespace
     AgentWorkloadDeploymentSpec openClawSpec()
     {
         OpenClawCodexProtocolConfig config;
-        config.port = QStringLiteral("18789");
         const auto spec = makeAgentWorkloadDeploymentSpec(config);
         Q_ASSERT(spec);
         return *spec;
+    }
+
+    // Current workloads publish nothing; publication matching stays covered for a future listener.
+    AgentWorkloadDeploymentSpec publishedSpec(AgentWorkloadDeploymentSpec spec)
+    {
+        spec.hostPort = QStringLiteral("18443");
+        spec.containerPort = QStringLiteral("8443");
+        return spec;
     }
 
     QJsonObject observedContainer(const AgentWorkloadDeploymentSpec &spec, bool running = true,
@@ -72,10 +78,12 @@ namespace
             { QStringLiteral("tmpfs"), tmpfs },
             { QStringLiteral("networks"), QJsonArray { spec.networkName } },
             { QStringLiteral("ports"),
-              QJsonArray { QJsonObject { { QStringLiteral("host_ip"), QStringLiteral("0.0.0.0") },
-                                         { QStringLiteral("host_port"), spec.hostPort },
-                                         { QStringLiteral("container_port"), spec.containerPort },
-                                         { QStringLiteral("protocol"), QStringLiteral("tcp") } } } },
+              spec.hostPort.isEmpty()
+                      ? QJsonArray {}
+                      : QJsonArray { QJsonObject { { QStringLiteral("host_ip"), QStringLiteral("0.0.0.0") },
+                                                   { QStringLiteral("host_port"), spec.hostPort },
+                                                   { QStringLiteral("container_port"), spec.containerPort },
+                                                   { QStringLiteral("protocol"), QStringLiteral("tcp") } } } },
             { QStringLiteral("labels"), labelObject },
         };
     }
@@ -113,6 +121,7 @@ private slots:
     void equivalentStoppedContainerPlansStart();
     void managedDriftPlansRecreate();
     void runtimeDriftPlansRecreate();
+    void unpublishedWorkloadRejectsPublishedPorts();
     void wrongOwnerPlansConflict();
     void occupiedPortPlansConflict();
     void invalidObservationPlansUnknown();
@@ -139,7 +148,7 @@ void AgentWorkloadReconciliationTest::equivalentRunningContainerPlansNoOp()
 
 void AgentWorkloadReconciliationTest::dualStackPublicationMatchesWithoutHidingDrift()
 {
-    for (const auto &spec : { authProxySpec(), openClawSpec() }) {
+    for (const auto &spec : { publishedSpec(authProxySpec()), publishedSpec(openClawSpec()) }) {
         auto container = observedContainer(spec);
         auto ports = container.value(QStringLiteral("ports")).toArray();
         auto ipv6 = ports.at(0).toObject();
@@ -218,13 +227,35 @@ void AgentWorkloadReconciliationTest::runtimeDriftPlansRecreate()
     wrongNetwork.insert(QStringLiteral("networks"), QJsonArray { QStringLiteral("bridge") });
     QCOMPARE(parseAndPlan(spec, envelope(spec, wrongNetwork)).action, AgentWorkloadReconciliationAction::Recreate);
 
-    QJsonObject wrongPort = observedContainer(spec);
+    const auto published = publishedSpec(spec);
+    QJsonObject wrongPort = observedContainer(published);
     QJsonArray ports = wrongPort.value(QStringLiteral("ports")).toArray();
     QJsonObject port = ports.at(0).toObject();
     port.insert(QStringLiteral("container_port"), QStringLiteral("9999"));
     ports.replace(0, port);
     wrongPort.insert(QStringLiteral("ports"), ports);
-    QCOMPARE(parseAndPlan(spec, envelope(spec, wrongPort)).action, AgentWorkloadReconciliationAction::Recreate);
+    QCOMPARE(parseAndPlan(published, envelope(published, wrongPort)).action,
+             AgentWorkloadReconciliationAction::Recreate);
+}
+
+void AgentWorkloadReconciliationTest::unpublishedWorkloadRejectsPublishedPorts()
+{
+    for (const auto &spec : { authProxySpec(), openClawSpec() }) {
+        QVERIFY(spec.hostPort.isEmpty());
+        QCOMPARE(parseAndPlan(spec, envelope(spec, observedContainer(spec))).action,
+                 AgentWorkloadReconciliationAction::NoOp);
+
+        // A container left from a release that published /v1 or the OpenClaw port must be replaced.
+        QJsonObject legacy = observedContainer(spec);
+        legacy.insert(QStringLiteral("ports"),
+                      QJsonArray { QJsonObject { { QStringLiteral("host_ip"), QStringLiteral("0.0.0.0") },
+                                                 { QStringLiteral("host_port"), QStringLiteral("8080") },
+                                                 { QStringLiteral("container_port"), QStringLiteral("8080") },
+                                                 { QStringLiteral("protocol"), QStringLiteral("tcp") } } });
+        const auto plan = parseAndPlan(spec, envelope(spec, legacy));
+        QCOMPARE(plan.action, AgentWorkloadReconciliationAction::Recreate);
+        QCOMPARE(plan.reason, AgentWorkloadReconciliationReason::RuntimeConfigurationDrift);
+    }
 }
 
 void AgentWorkloadReconciliationTest::wrongOwnerPlansConflict()
@@ -242,7 +273,7 @@ void AgentWorkloadReconciliationTest::wrongOwnerPlansConflict()
 
 void AgentWorkloadReconciliationTest::occupiedPortPlansConflict()
 {
-    const auto spec = openClawSpec();
+    const auto spec = publishedSpec(openClawSpec());
     const QJsonArray owners { QJsonObject { { QStringLiteral("id"), QStringLiteral("other-id") },
                                             { QStringLiteral("name"), QStringLiteral("other-container") } } };
     const auto plan = parseAndPlan(spec, envelope(spec, QJsonValue::Null, true, owners));

@@ -117,13 +117,11 @@ ContainerConfig InstallerBase::createBaseConfig(DockerContainer container, int p
     }
     case Proto::AmgptAuthProxy: {
         AmgptAuthProxyProtocolConfig proxyConfig;
-        proxyConfig.port = portStr;
         config.protocolConfig = proxyConfig;
         break;
     }
     case Proto::OpenClawCodex: {
         OpenClawCodexProtocolConfig workloadConfig;
-        workloadConfig.port = portStr;
         config.protocolConfig = workloadConfig;
         break;
     }

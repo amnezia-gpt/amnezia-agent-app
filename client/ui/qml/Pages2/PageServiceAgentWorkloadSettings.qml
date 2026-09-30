@@ -18,13 +18,8 @@ PageType {
     readonly property int actionRecreate: 3
     readonly property int actionConflict: 4
     readonly property int actionUnknown: 5
-    readonly property int loginNative: 0
     readonly property int loginAmgpt: 1
-    // Product UI gate: retain native implementation, expose AMGPT only for now.
-    readonly property bool nativeLoginEnabled: false
     readonly property int loginPreconditionNone: 0
-    readonly property int loginPreconditionAuthProxyMissing: 3
-    readonly property int loginPreconditionAuthProxyNotReady: 4
     readonly property int loginStatePending: 1
 
     property int currentAction: actionUnknown
@@ -36,8 +31,8 @@ PageType {
     property string userCode: ""
     property bool operationInProgress: false
     property var savedConfig: ContainersModel.getContainerConfig(ServersUiController.processedContainerIndex)
-    property bool isAuthProxy: savedConfig.container === "amnezia-amgpt-auth-proxy"
-    property var deploymentConfig: savedConfig[isAuthProxy ? "amgptauthproxy" : "openclawcodex"] || ({})
+    property bool isDeviceGateway: savedConfig.container === "amnezia-amgpt-device-gateway"
+    property var deploymentConfig: savedConfig[isDeviceGateway ? "amgptdevicegateway" : "openclawcodex"] || ({})
 
     function actionText() {
         if (currentAction === actionCreate)
@@ -161,15 +156,8 @@ PageType {
                 Layout.fillWidth: true
                 Layout.leftMargin: 16
                 Layout.rightMargin: 16
-                text: qsTr("Host port: %1").arg(root.deploymentConfig.port || qsTr("unknown"))
-            }
-
-            LabelTextType {
-                Layout.fillWidth: true
-                Layout.leftMargin: 16
-                Layout.rightMargin: 16
                 Layout.bottomMargin: 16
-                visible: root.isAuthProxy
+                visible: root.isDeviceGateway
                 text: qsTr("Backend profile: %1").arg(root.deploymentConfig.backend_profile || qsTr("resolved on update"))
             }
 
@@ -218,23 +206,13 @@ PageType {
                 Layout.leftMargin: 16
                 Layout.rightMargin: 16
                 Layout.topMargin: 16
-                visible: !root.isAuthProxy && root.currentAction === root.actionNoOp
-                text: qsTr("Agent authorization")
+                visible: root.isDeviceGateway && root.currentAction === root.actionNoOp
+                text: qsTr("Device authorization")
             }
 
             LabelWithButtonType {
                 Layout.fillWidth: true
-                visible: root.nativeLoginEnabled && !root.isAuthProxy && root.currentAction === root.actionNoOp
-                text: qsTr("Sign in with ChatGPT")
-                rightImageSource: "qrc:/images/controls/chevron-right.svg"
-                clickedFunction: function() { root.startLogin(root.loginNative) }
-            }
-
-            DividerType { visible: root.nativeLoginEnabled && !root.isAuthProxy && root.currentAction === root.actionNoOp }
-
-            LabelWithButtonType {
-                Layout.fillWidth: true
-                visible: !root.isAuthProxy && root.currentAction === root.actionNoOp
+                visible: root.isDeviceGateway && root.currentAction === root.actionNoOp
                 text: qsTr("Sign in with Amnezia GPT")
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"
                 clickedFunction: function() { root.startLogin(root.loginAmgpt) }
@@ -245,7 +223,7 @@ PageType {
                 Layout.leftMargin: 16
                 Layout.rightMargin: 16
                 Layout.topMargin: 12
-                visible: !root.isAuthProxy && root.loginMessage.length > 0
+                visible: root.isDeviceGateway && root.loginMessage.length > 0
                 text: root.loginMessage
                 wrapMode: Text.WordWrap
             }
@@ -255,7 +233,7 @@ PageType {
                 Layout.leftMargin: 16
                 Layout.rightMargin: 16
                 Layout.topMargin: 8
-                visible: !root.isAuthProxy && root.userCode.length > 0
+                visible: root.isDeviceGateway && root.userCode.length > 0
                 text: qsTr("User code: %1").arg(root.userCode)
                 textFormat: Text.PlainText
                 wrapMode: Text.WrapAnywhere
@@ -263,7 +241,7 @@ PageType {
 
             LabelWithButtonType {
                 Layout.fillWidth: true
-                visible: !root.isAuthProxy && root.verificationUrl.length > 0
+                visible: root.isDeviceGateway && root.verificationUrl.length > 0
                 text: qsTr("Open authorization page")
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"
                 clickedFunction: function() {
@@ -274,37 +252,14 @@ PageType {
 
             LabelWithButtonType {
                 Layout.fillWidth: true
-                visible: root.nativeLoginEnabled && !root.isAuthProxy && root.currentAction === root.actionNoOp
-                text: qsTr("Refresh ChatGPT sign-in status")
-                rightImageSource: "qrc:/images/controls/chevron-right.svg"
-                clickedFunction: function() { root.refreshLoginStatus(root.loginNative) }
-            }
-
-            LabelWithButtonType {
-                Layout.fillWidth: true
-                visible: !root.isAuthProxy && root.currentAction === root.actionNoOp
+                visible: root.isDeviceGateway && root.currentAction === root.actionNoOp
                 text: qsTr("Refresh Amnezia GPT sign-in status")
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"
                 clickedFunction: function() { root.refreshLoginStatus(root.loginAmgpt) }
             }
 
-            LabelWithButtonType {
-                Layout.fillWidth: true
-                visible: !root.isAuthProxy
-                         && (root.loginPrecondition === root.loginPreconditionAuthProxyMissing
-                             || root.loginPrecondition === root.loginPreconditionAuthProxyNotReady)
-                text: qsTr("Open Amnezia GPT Proxy")
-                rightImageSource: "qrc:/images/controls/chevron-right.svg"
-                clickedFunction: function() {
-                    ServersUiController.processedContainerIndex = InstallController.amgptAuthProxyContainerIndex()
-                    PageController.goToPage(root.loginPrecondition === root.loginPreconditionAuthProxyMissing
-                                            ? PageEnum.PageSetupWizardProtocolSettings
-                                            : PageEnum.PageServiceAgentWorkloadSettings, false)
-                }
-            }
-
             DividerType {
-                visible: !root.isAuthProxy && root.currentAction === root.actionNoOp
+                visible: root.isDeviceGateway && root.currentAction === root.actionNoOp
             }
 
             LabelWithButtonType {

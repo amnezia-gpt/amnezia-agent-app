@@ -127,9 +127,9 @@ void InstallerConfigTest::generatedConfig_data()
     addInstallerRow({ "mtproxy-port-max", DockerContainer::MtProxy, 65535, TransportProto::Tcp, Proto::MtProxy, "tcp" });
     addInstallerRow({ "telemt-port-min", DockerContainer::Telemt, 1, TransportProto::Tcp, Proto::Telemt, "tcp" });
     addInstallerRow({ "telemt-port-max", DockerContainer::Telemt, 65535, TransportProto::Tcp, Proto::Telemt, "tcp" });
-    addInstallerRow({ "amgpt-auth-proxy-port-min", DockerContainer::AmgptAuthProxy, 1, TransportProto::Tcp,
+    addInstallerRow({ "amgpt-device-gateway-port-min", DockerContainer::AmgptAuthProxy, 1, TransportProto::Tcp,
                       Proto::AmgptAuthProxy, "tcp" });
-    addInstallerRow({ "amgpt-auth-proxy-port-max", DockerContainer::AmgptAuthProxy, 65535, TransportProto::Tcp,
+    addInstallerRow({ "amgpt-device-gateway-port-max", DockerContainer::AmgptAuthProxy, 65535, TransportProto::Tcp,
                       Proto::AmgptAuthProxy, "tcp" });
     addInstallerRow({ "openclaw-codex-port-min", DockerContainer::OpenClawCodex, 1, TransportProto::Tcp,
                       Proto::OpenClawCodex, "tcp" });
@@ -155,7 +155,9 @@ void InstallerConfigTest::generatedConfig()
 
     QCOMPARE(static_cast<int>(config.container), container);
     QCOMPARE(static_cast<int>(config.getProtocolType()), protocol);
-    if (static_cast<Proto>(protocol) == Proto::TorWebSite)
+    // Tor and agent workloads never store a requested host port.
+    if (static_cast<Proto>(protocol) == Proto::TorWebSite || static_cast<Proto>(protocol) == Proto::AmgptAuthProxy
+        || static_cast<Proto>(protocol) == Proto::OpenClawCodex)
         QVERIFY(protocolPort(config).isEmpty());
     else
         QCOMPARE(protocolPort(config), QString::number(port));
@@ -233,13 +235,13 @@ void InstallerConfigTest::generatedConfig()
     case Proto::AmgptAuthProxy: {
         const auto *proxy = std::get_if<AmgptAuthProxyProtocolConfig>(&config.protocolConfig.data);
         QVERIFY(proxy != nullptr);
-        QCOMPARE(proxy->port, QString::number(port));
+        QVERIFY(proxy->port.isEmpty());
         break;
     }
     case Proto::OpenClawCodex: {
         const auto *workload = std::get_if<OpenClawCodexProtocolConfig>(&config.protocolConfig.data);
         QVERIFY(workload != nullptr);
-        QCOMPARE(workload->port, QString::number(port));
+        QVERIFY(workload->port.isEmpty());
         break;
     }
     case Proto::TorWebSite: {
@@ -301,12 +303,13 @@ void InstallerConfigTest::defaultConfig_data()
                              << QStringLiteral("tcp");
     QTest::newRow("telemt") << static_cast<int>(DockerContainer::Telemt) << 443 << static_cast<int>(TransportProto::Tcp)
                             << static_cast<int>(Proto::Telemt) << true << QStringLiteral("tcp");
-    QTest::newRow("amgpt-auth-proxy") << static_cast<int>(DockerContainer::AmgptAuthProxy) << 8080
-                                      << static_cast<int>(TransportProto::Tcp)
-                                      << static_cast<int>(Proto::AmgptAuthProxy) << true << QStringLiteral("tcp");
-    QTest::newRow("openclaw-codex") << static_cast<int>(DockerContainer::OpenClawCodex) << 18789
+    // Agent workloads publish no host port; nothing is stored for them.
+    QTest::newRow("amgpt-device-gateway") << static_cast<int>(DockerContainer::AmgptAuthProxy) << -1
+                                          << static_cast<int>(TransportProto::Tcp)
+                                          << static_cast<int>(Proto::AmgptAuthProxy) << false << QStringLiteral("tcp");
+    QTest::newRow("openclaw-codex") << static_cast<int>(DockerContainer::OpenClawCodex) << -1
                                     << static_cast<int>(TransportProto::Tcp) << static_cast<int>(Proto::OpenClawCodex)
-                                    << true << QStringLiteral("tcp");
+                                    << false << QStringLiteral("tcp");
 }
 
 void InstallerConfigTest::defaultConfig()

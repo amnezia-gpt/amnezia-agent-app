@@ -76,9 +76,8 @@ namespace amnezia
     enum class AgentWorkloadLoginPrecondition {
         None,
         InvalidRequest,
-        OpenClawNotReady,
-        AuthProxyMissing,
-        AuthProxyNotReady,
+        DeviceGatewayMissing,
+        DeviceGatewayNotReady,
     };
 
     struct AgentWorkloadLoginPresentation
@@ -136,10 +135,6 @@ namespace amnezia
     AgentWorkloadLoginStatusParseResult parseAgentWorkloadLoginStatus(const QByteArray &payload,
                                                                       AgentWorkloadLoginMode expectedMode);
     bool isSafeAgentWorkloadVerificationUrl(const QUrl &url);
-    AgentWorkloadLoginPrecondition evaluateAgentWorkloadLoginPrecondition(
-            AgentWorkloadLoginMode mode, const AgentWorkloadReconciliationPlan &openClaw,
-            const std::optional<AgentWorkloadReconciliationPlan> &authProxy);
-
 } // namespace amnezia
 
 Q_DECLARE_METATYPE(amnezia::AgentWorkloadLoginMode)

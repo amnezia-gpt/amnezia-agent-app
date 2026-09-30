@@ -294,16 +294,6 @@ namespace amnezia
             constexpr int botTagHexLength = 32;
         }
 
-        namespace amgptAuthProxy
-        {
-            constexpr char defaultPort[] = "8080";
-        }
-
-        namespace openClawCodex
-        {
-            constexpr char defaultPort[] = "18789";
-        }
-
     } // namespace protocols
 }
 

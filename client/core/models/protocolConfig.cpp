@@ -81,10 +81,10 @@ namespace amnezia
                         return arg.port.isEmpty() ? QString(protocols::mtProxy::defaultPort) : arg.port;
                     } else if constexpr (std::is_same_v<T, TelemtProtocolConfig>) {
                         return arg.port.isEmpty() ? QString(protocols::telemt::defaultPort) : arg.port;
-                    } else if constexpr (std::is_same_v<T, AmgptAuthProxyProtocolConfig>) {
-                        return arg.port.isEmpty() ? QString(protocols::amgptAuthProxy::defaultPort) : arg.port;
-                    } else if constexpr (std::is_same_v<T, OpenClawCodexProtocolConfig>) {
-                        return arg.port.isEmpty() ? QString(protocols::openClawCodex::defaultPort) : arg.port;
+                    } else if constexpr (std::is_same_v<T, AmgptAuthProxyProtocolConfig>
+                                         || std::is_same_v<T, OpenClawCodexProtocolConfig>) {
+                        // Agent workloads publish no host port; a persisted legacy value is not applied.
+                        return QString();
                     }
                     return QString();
                 },

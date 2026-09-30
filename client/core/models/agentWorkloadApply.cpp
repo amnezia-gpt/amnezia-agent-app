@@ -39,13 +39,19 @@ namespace amnezia
             return {};
         }
 
+        // An empty block must still continue the multi-line docker run command.
+        QString continuationBlock(const QStringList &arguments)
+        {
+            return arguments.isEmpty() ? QStringLiteral("    \\") : arguments.join(QLatin1Char('\n'));
+        }
+
         QString continuedArguments(const QString &option, const QStringList &values)
         {
             QStringList arguments;
             for (const QString &value : values) {
                 arguments.append(QStringLiteral("    %1 %2 \\").arg(option, shellQuote(value)));
             }
-            return arguments.join(QLatin1Char('\n'));
+            return continuationBlock(arguments);
         }
 
         QString environmentArguments(const QMap<QString, QString> &environment)
@@ -55,7 +61,7 @@ namespace amnezia
                 arguments.append(
                         QStringLiteral("    --env %1 \\").arg(shellQuote(it.key() + QLatin1Char('=') + it.value())));
             }
-            return arguments.join(QLatin1Char('\n'));
+            return continuationBlock(arguments);
         }
 
         QString labelArguments(const QMap<QString, QString> &labels)
@@ -65,7 +71,7 @@ namespace amnezia
                 arguments.append(
                         QStringLiteral("    --label %1 \\").arg(shellQuote(it.key() + QLatin1Char('=') + it.value())));
             }
-            return arguments.join(QLatin1Char('\n'));
+            return continuationBlock(arguments);
         }
 
         QString volumeArguments(const QList<AgentWorkloadVolume> &volumes)
@@ -75,7 +81,7 @@ namespace amnezia
                 arguments.append(QStringLiteral("    --volume %1 \\")
                                          .arg(shellQuote(volume.name + QLatin1Char(':') + volume.target)));
             }
-            return arguments.join(QLatin1Char('\n'));
+            return continuationBlock(arguments);
         }
 
     } // namespace
@@ -95,7 +101,7 @@ namespace amnezia
             return std::nullopt;
         }
 
-        const DockerContainer container = spec.workload == QStringLiteral("amgpt-auth-proxy")
+        const DockerContainer container = spec.workload == QStringLiteral("amgpt-device-gateway")
                 ? DockerContainer::AmgptAuthProxy
                 : DockerContainer::OpenClawCodex;
         QString script = scriptData(ProtocolScriptType::run_container, container);
@@ -134,13 +140,20 @@ namespace amnezia
                       : QStringLiteral("    --network-alias %1 \\").arg(shellQuote(spec.networkAlias)) },
             { QStringLiteral("@@NETWORK_NAME@@"), shellQuote(spec.networkName) },
             { QStringLiteral("@@PLATFORM@@"), shellQuote(spec.platform) },
-            { QStringLiteral("@@PORT@@"),
-              shellQuote(spec.hostPort + QLatin1Char(':') + spec.containerPort + QStringLiteral("/tcp")) },
+            { QStringLiteral("@@PUBLISH_ARG@@"),
+              spec.hostPort.isEmpty()
+                      ? QStringLiteral("    \\")
+                      : QStringLiteral("    --publish %1 \\").arg(shellQuote(
+                                spec.hostPort + QLatin1Char(':') + spec.containerPort + QStringLiteral("/tcp"))) },
             { QStringLiteral("@@RESTART_POLICY@@"), shellQuote(spec.restartPolicy) },
             { QStringLiteral("@@SECURITY_ARGS@@"),
               continuedArguments(QStringLiteral("--security-opt"), spec.securityOptions) },
             { QStringLiteral("@@CAPABILITY_ARGS@@"),
-              continuedArguments(QStringLiteral("--cap-drop"), spec.capabilitiesDropped) },
+              continuedArguments(QStringLiteral("--cap-drop"), spec.capabilitiesDropped)
+                      + (spec.capabilitiesAdded.isEmpty()
+                                 ? QString()
+                                 : QLatin1Char('\n')
+                                         + continuedArguments(QStringLiteral("--cap-add"), spec.capabilitiesAdded)) },
             { QStringLiteral("@@STOP_TIMEOUT@@"), shellQuote(QString::number(spec.stopGracePeriodSeconds)) },
             { QStringLiteral("@@TMPFS_ARGS@@"), continuedArguments(QStringLiteral("--tmpfs"), spec.tmpfs) },
             { QStringLiteral("@@VOLUME_ARGS@@"), volumeArguments(spec.volumes) },

@@ -77,11 +77,6 @@ InstallUiController::~InstallUiController()
 {
 }
 
-int InstallUiController::amgptAuthProxyContainerIndex() const
-{
-    return static_cast<int>(DockerContainer::AmgptAuthProxy);
-}
-
 namespace
 {
 bool isAgentWorkloadContainer(DockerContainer container)
@@ -157,12 +152,10 @@ QString reconciliationReasonMessage(AgentWorkloadReconciliationReason reason)
         case AgentWorkloadLoginPrecondition::None: return {};
         case AgentWorkloadLoginPrecondition::InvalidRequest:
             return QObject::tr("Unable to use the saved workload configuration");
-        case AgentWorkloadLoginPrecondition::OpenClawNotReady:
-            return QObject::tr("OpenClaw is not healthy and up to date. Repair it before signing in");
-        case AgentWorkloadLoginPrecondition::AuthProxyMissing:
-            return QObject::tr("Install Amnezia GPT Proxy before signing in with Amnezia GPT");
-        case AgentWorkloadLoginPrecondition::AuthProxyNotReady:
-            return QObject::tr("Amnezia GPT Proxy is not healthy and up to date. Repair it before signing in");
+        case AgentWorkloadLoginPrecondition::DeviceGatewayMissing:
+            return QObject::tr("Install AMGPT Device Gateway before signing in with Amnezia GPT");
+        case AgentWorkloadLoginPrecondition::DeviceGatewayNotReady:
+            return QObject::tr("AMGPT Device Gateway is not healthy and up to date. Repair it before signing in");
         }
         return QObject::tr("Unable to start sign-in");
     }
@@ -173,16 +166,16 @@ QString reconciliationReasonMessage(AgentWorkloadReconciliationReason reason)
         case AgentWorkloadLoginOperationError::None:
             return QObject::tr("Open the authorization page and approve this device");
         case AgentWorkloadLoginOperationError::InvalidTarget:
-            return QObject::tr("Unable to use the saved OpenClaw configuration");
+            return QObject::tr("Unable to use the saved Device Gateway configuration");
         case AgentWorkloadLoginOperationError::WorkloadNotReady:
-            return QObject::tr("OpenClaw is not healthy and up to date");
+            return QObject::tr("Device Gateway is not healthy and up to date");
         case AgentWorkloadLoginOperationError::ObservationFailed:
-            return QObject::tr("Unable to determine the OpenClaw state");
+            return QObject::tr("Unable to determine the Device Gateway state");
         case AgentWorkloadLoginOperationError::CommandFailed:
             return QObject::tr("Unable to run the remote sign-in command");
         case AgentWorkloadLoginOperationError::OutputTooLarge:
         case AgentWorkloadLoginOperationError::InvalidResponse:
-            return QObject::tr("OpenClaw returned an invalid sign-in response");
+            return QObject::tr("Device Gateway returned an invalid sign-in response");
         case AgentWorkloadLoginOperationError::RemoteFailure:
             return QObject::tr("The sign-in provider rejected the request");
         }
@@ -607,8 +600,7 @@ void InstallUiController::stopAgentWorkload(const QString &serverId, int contain
 
 void InstallUiController::startAgentWorkloadLogin(const QString &serverId, int modeValue)
 {
-    if (modeValue < static_cast<int>(AgentWorkloadLoginMode::Native)
-        || modeValue > static_cast<int>(AgentWorkloadLoginMode::Amgpt)) {
+    if (modeValue != static_cast<int>(AgentWorkloadLoginMode::Amgpt)) {
         return;
     }
     const auto mode = static_cast<AgentWorkloadLoginMode>(modeValue);
@@ -641,8 +633,7 @@ void InstallUiController::startAgentWorkloadLogin(const QString &serverId, int m
 
 void InstallUiController::refreshAgentWorkloadLoginStatus(const QString &serverId, int modeValue)
 {
-    if (modeValue < static_cast<int>(AgentWorkloadLoginMode::Native)
-        || modeValue > static_cast<int>(AgentWorkloadLoginMode::Amgpt)) {
+    if (modeValue != static_cast<int>(AgentWorkloadLoginMode::Amgpt)) {
         return;
     }
     const auto mode = static_cast<AgentWorkloadLoginMode>(modeValue);

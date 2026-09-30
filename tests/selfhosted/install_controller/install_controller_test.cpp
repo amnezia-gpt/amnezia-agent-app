@@ -135,6 +135,7 @@ namespace
     {
         QJsonObject container;
         QJsonArray owners;
+        const bool published = !spec.hostPort.isEmpty();
         if (present) {
             QJsonArray mounts;
             for (const auto &volume : spec.volumes) {
@@ -166,14 +167,17 @@ namespace
                 { QStringLiteral("tmpfs"), tmpfs },
                 { QStringLiteral("networks"), QJsonArray { spec.networkName } },
                 { QStringLiteral("ports"),
-                  QJsonArray { QJsonObject { { QStringLiteral("host_ip"), QStringLiteral("0.0.0.0") },
-                                             { QStringLiteral("host_port"), spec.hostPort },
-                                             { QStringLiteral("container_port"), spec.containerPort },
-                                             { QStringLiteral("protocol"), QStringLiteral("tcp") } } } },
+                  published ? QJsonArray { QJsonObject { { QStringLiteral("host_ip"), QStringLiteral("0.0.0.0") },
+                                                         { QStringLiteral("host_port"), spec.hostPort },
+                                                         { QStringLiteral("container_port"), spec.containerPort },
+                                                         { QStringLiteral("protocol"), QStringLiteral("tcp") } } }
+                            : QJsonArray {} },
                 { QStringLiteral("labels"), labels },
             };
-            owners.append(QJsonObject { { QStringLiteral("id"), QStringLiteral("container-id") },
-                                        { QStringLiteral("name"), spec.containerName } });
+            if (published) {
+                owners.append(QJsonObject { { QStringLiteral("id"), QStringLiteral("container-id") },
+                                            { QStringLiteral("name"), spec.containerName } });
+            }
         }
         const QJsonValue containerValue = present ? QJsonValue(container) : QJsonValue(QJsonValue::Null);
         return QJsonDocument(QJsonObject {
@@ -183,7 +187,7 @@ namespace
                                                      { QStringLiteral("container_name"), spec.containerName },
                                                      { QStringLiteral("host_port"), spec.hostPort } } },
                                      { QStringLiteral("container"), containerValue },
-                                     { QStringLiteral("host_port_in_use"), present },
+                                     { QStringLiteral("host_port_in_use"), present && published },
                                      { QStringLiteral("port_owners"), owners },
                              })
                 .toJson(QJsonDocument::Compact);
@@ -276,30 +280,26 @@ void InstallControllerTest::localProfileAndUnavailableProduction()
 
 void InstallControllerTest::loginDependencyAndTransportOutcomes_data()
 {
-    QTest::addColumn<bool>("native");
     QTest::addColumn<QString>("proxyState");
-    QTest::addColumn<bool>("openClawHealthy");
+    QTest::addColumn<bool>("includeOpenClaw");
     QTest::addColumn<int>("expectedPrecondition");
     QTest::addColumn<QString>("commandFailure");
     using P = AgentWorkloadLoginPrecondition;
-    QTest::newRow("native-without-proxy") << true << QString("missing") << true << int(P::None) << QString();
-    QTest::newRow("native-ignores-broken-proxy") << true << QString("unhealthy") << true << int(P::None) << QString();
-    QTest::newRow("amgpt-healthy") << false << QString("healthy") << true << int(P::None) << QString();
-    QTest::newRow("amgpt-missing") << false << QString("missing") << true << int(P::AuthProxyMissing) << QString();
+    QTest::newRow("amgpt-healthy") << QString("healthy") << true << int(P::None) << QString();
+    QTest::newRow("amgpt-does-not-require-openclaw") << QString("healthy") << false << int(P::None) << QString();
+    QTest::newRow("amgpt-missing") << QString("missing") << true << int(P::DeviceGatewayMissing) << QString();
     for (const QString &state : { QString("stopped"), QString("unhealthy"), QString("drift"), QString("conflict"),
                                  QString("unknown") }) {
-        QTest::newRow(qPrintable(state)) << false << state << true << int(P::AuthProxyNotReady) << QString();
+        QTest::newRow(qPrintable(state)) << state << true << int(P::DeviceGatewayNotReady) << QString();
     }
-    QTest::newRow("openclaw-unhealthy") << true << QString("missing") << false << int(P::OpenClawNotReady) << QString();
-    QTest::newRow("login-transport-failure") << true << QString("missing") << true << int(P::None) << QString("transport");
-    QTest::newRow("login-invalid-response") << true << QString("missing") << true << int(P::None) << QString("invalid");
+    QTest::newRow("login-transport-failure") << QString("healthy") << true << int(P::None) << QString("transport");
+    QTest::newRow("login-invalid-response") << QString("healthy") << true << int(P::None) << QString("invalid");
 }
 
 void InstallControllerTest::loginDependencyAndTransportOutcomes()
 {
-    QFETCH(bool, native);
     QFETCH(QString, proxyState);
-    QFETCH(bool, openClawHealthy);
+    QFETCH(bool, includeOpenClaw);
     QFETCH(int, expectedPrecondition);
     QFETCH(QString, commandFailure);
     SessionRecorder recorder;
@@ -312,18 +312,12 @@ void InstallControllerTest::loginDependencyAndTransportOutcomes()
     config.userName = credentials.userName;
     config.password = credentials.secretData;
     config.port = credentials.port;
-    config.containers.insert(DockerContainer::OpenClawCodex,
-                             controller.generateConfig(DockerContainer::OpenClawCodex, 28789, TransportProto::Tcp));
-    const auto openClawSpec = makeAgentWorkloadDeploymentSpec(
-            *config.containers[DockerContainer::OpenClawCodex].getOpenClawCodexProtocolConfig());
-    QVERIFY(openClawSpec);
-    auto openClaw = QJsonDocument::fromJson(agentObservation(*openClawSpec, true)).object();
-    if (!openClawHealthy) {
-        auto container = openClaw["container"].toObject();
-        container["health"] = "unhealthy";
-        openClaw["container"] = container;
+    if (includeOpenClaw) {
+        config.containers.insert(DockerContainer::OpenClawCodex,
+                                 controller.generateConfig(DockerContainer::OpenClawCodex, 28789,
+                                                           TransportProto::Tcp));
     }
-    recorder.state->observationOutputs.append(QString::fromUtf8(QJsonDocument(openClaw).toJson(QJsonDocument::Compact)));
+    QString proxyObservation;
     if (proxyState != "missing") {
         config.containers.insert(DockerContainer::AmgptAuthProxy,
                                  controller.generateConfig(DockerContainer::AmgptAuthProxy, 18080, TransportProto::Tcp));
@@ -343,17 +337,19 @@ void InstallControllerTest::loginDependencyAndTransportOutcomes()
             container["labels"] = QJsonObject();
         }
         observation["container"] = container;
-        if (!native) {
-            recorder.state->observationOutputs.append(proxyState == "unknown" ? QString("not-json")
-                    : QString::fromUtf8(QJsonDocument(observation).toJson(QJsonDocument::Compact)));
-        }
+        proxyObservation = proxyState == "unknown" ? QString("not-json")
+                                                     : QString::fromUtf8(
+                                                             QJsonDocument(observation).toJson(QJsonDocument::Compact));
     }
     // Installed configuration must remain authoritative even when the global
     // selection becomes unavailable (or changes to another environment).
     selectedEnvironment = static_cast<AgentBackendEnvironment>(99);
-    recorder.state->observationOutputs.append(QString::fromUtf8(agentObservation(*openClawSpec, true)));
+    if (proxyState != "missing") {
+        recorder.state->observationOutputs.append(proxyObservation);
+        recorder.state->observationOutputs.append(proxyObservation);
+    }
     recorder.state->outputMarker = "workloadctl login start";
-    const auto mode = native ? AgentWorkloadLoginMode::Native : AgentWorkloadLoginMode::Amgpt;
+    const auto mode = AgentWorkloadLoginMode::Amgpt;
     recorder.state->stdoutText = QString::fromUtf8(QJsonDocument(QJsonObject {
             { "schema_version", 1 }, { "mode", agentWorkloadLoginModeName(mode) }, { "state", "pending" },
             { "verification_uri", "https://auth.example/device" }, { "verification_uri_complete", QJsonValue::Null },
@@ -377,7 +373,10 @@ void InstallControllerTest::loginDependencyAndTransportOutcomes()
     QCOMPARE(commandContaining(*recorder.state, "base64 -d | sudo -n sh"), -1);
     QCOMPARE(commandContaining(*recorder.state, "docker run"), -1);
     QCOMPARE(recorder.state->uploadCount, 0);
-    if (native) QCOMPARE(commandContaining(*recorder.state, "amnezia-amgpt-auth-proxy"), -1);
+    if (expectedPrecondition == int(AgentWorkloadLoginPrecondition::None)) {
+        QVERIFY(commandContaining(*recorder.state, "docker exec -i amnezia-amgpt-device-gateway workloadctl") >= 0);
+        QCOMPARE(commandContaining(*recorder.state, "docker exec -i amnezia-openclaw-codex workloadctl"), -1);
+    }
 }
 
 void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
@@ -388,7 +387,6 @@ void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
     ContainerConfig config;
 
     AmgptAuthProxyProtocolConfig expectedConfig;
-    expectedConfig.port = QStringLiteral("18080");
     expectedConfig.backendProfile = QStringLiteral("development");
     expectedConfig.authIssuer = QStringLiteral("https://agpt-auth-dev.amzsvc.com");
     expectedConfig.routerBaseUrl = QStringLiteral("https://agpt-router-dev.amzsvc.com/v1");
@@ -407,6 +405,7 @@ void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
 
     const auto *proxy = config.getAmgptAuthProxyProtocolConfig();
     QVERIFY(proxy);
+    QVERIFY(proxy->port.isEmpty());
     QCOMPARE(proxy->backendProfile, QStringLiteral("development"));
     QCOMPARE(proxy->authIssuer, QStringLiteral("https://agpt-auth-dev.amzsvc.com"));
     QCOMPARE(proxy->routerBaseUrl, QStringLiteral("https://agpt-router-dev.amzsvc.com/v1"));
@@ -419,7 +418,7 @@ void InstallControllerTest::agentWorkloadInstallKeepsTheSiblingOutOfItsMutation(
     SessionRecorder recorder;
     InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
     ContainerConfig config;
-    OpenClawCodexProtocolConfig expectedConfig { QStringLiteral("28789") };
+    OpenClawCodexProtocolConfig expectedConfig;
     const auto expectedSpec = makeAgentWorkloadDeploymentSpec(expectedConfig);
     QVERIFY(expectedSpec);
     recorder.state->observationOutputs = {
@@ -435,7 +434,7 @@ void InstallControllerTest::agentWorkloadInstallKeepsTheSiblingOutOfItsMutation(
 
     const int mutation = commandContaining(*recorder.state, QStringLiteral("base64 -d | sudo -n sh"));
     QVERIFY(mutation >= 0);
-    QVERIFY(!recorder.state->commands.at(mutation).contains(QStringLiteral("amnezia-amgpt-auth-proxy")));
+    QVERIFY(!recorder.state->commands.at(mutation).contains(QStringLiteral("amnezia-amgpt-device-gateway")));
     QCOMPARE(commandContaining(*recorder.state, QStringLiteral("docker build")), -1);
 }
 

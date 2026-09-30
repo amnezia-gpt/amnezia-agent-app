@@ -40,10 +40,11 @@ private slots:
     void persistsResolvedBackendProfile();
     void createsCompleteAuthProxyDesiredState();
     void keepsOpenClawIndependentFromBackendProfile();
+    void createsSupervisedRuntimeDesiredState();
+    void sharesOnlyTheAppSocketVolume();
+    void ignoresPersistedPublishedPorts();
     void rejectsMalformedProfileUrls_data();
     void rejectsMalformedProfileUrls();
-    void rejectsInvalidPorts_data();
-    void rejectsInvalidPorts();
     void normalizesEquivalentProfilesBeforeHashing();
     void changesHashWhenDesiredStateChanges();
     void rendersOnlyWorkloadOwnedVariables();
@@ -109,31 +110,50 @@ void AgentWorkloadDeploymentSpecTest::createsCompleteAuthProxyDesiredState()
     QVERIFY(spec);
     QCOMPARE(error, AgentDeploymentValidationError::None);
     QCOMPARE(spec->schemaVersion, 1);
-    QCOMPARE(spec->workloadVersion, QStringLiteral("v0.2.1"));
-    QCOMPARE(spec->imageReference, QStringLiteral("docker.io/amneziavpn/agent-workload-amgpt-auth-proxy:v0.2.1"));
+    QCOMPARE(spec->workloadVersion,
+             QStringLiteral("dev"));
+    QCOMPARE(spec->imageReference,
+             QStringLiteral("docker.io/amneziavpn/agent-workload-amgpt-auth-proxy:dev"));
     QCOMPARE(spec->platform, QStringLiteral("linux/amd64"));
-    QCOMPARE(spec->containerName, QStringLiteral("amnezia-amgpt-auth-proxy"));
+    QCOMPARE(spec->containerName, QStringLiteral("amnezia-amgpt-device-gateway"));
+    QCOMPARE(spec->networkAlias, QStringLiteral("amgpt-device-gateway"));
     QCOMPARE(spec->networkName, QStringLiteral("amnezia-agent-workloads"));
-    QCOMPARE(spec->hostPort, QStringLiteral("8080"));
-    QCOMPARE(spec->containerPort, QStringLiteral("8080"));
+    // The private provider endpoint injects Router credentials; publishing it would expose compute.
+    QVERIFY(spec->hostPort.isEmpty());
+    QVERIFY(spec->containerPort.isEmpty());
     QCOMPARE(spec->restartPolicy, QStringLiteral("unless-stopped"));
     QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_AUTH_ISSUER")), QStringLiteral("https://auth.example.com"));
     QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_ROUTER_BASE_URL")),
              QStringLiteral("https://router.example.com/v1"));
-    QCOMPARE(spec->volumes.size(), 1);
-    QCOMPARE(spec->volumes.constFirst().target, QStringLiteral("/var/lib/amgpt-auth-proxy"));
+    QVERIFY(!spec->environment.contains(QStringLiteral("AMGPT_PROXY_MANAGED_DEVICE")));
+    QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_DEVICE_GATEWAY_STATE_DIR")),
+             QStringLiteral("/var/lib/amgpt-device-gateway"));
+    QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_INGRESS_STATE_DIR")),
+             QStringLiteral("/var/lib/amgpt-device-gateway/ingress"));
+    QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_CODEX_APP_SOCKET")),
+             QStringLiteral("/run/amgpt-codex/app-server.sock"));
+    QCOMPARE(spec->environment.size(), 5);
+    QCOMPARE(spec->volumes.size(), 2);
+    QCOMPARE(spec->volumes.at(0).name, QStringLiteral("amnezia-amgpt-device-gateway-state"));
+    QCOMPARE(spec->volumes.at(0).target, QStringLiteral("/var/lib/amgpt-device-gateway"));
+    QCOMPARE(spec->volumes.at(1).name, QStringLiteral("amnezia-agent-codex-app-socket"));
+    QCOMPARE(spec->volumes.at(1).target, QStringLiteral("/run/amgpt-codex"));
+    QCOMPARE(spec->tmpfs, QStringList { QStringLiteral("/tmp:rw,noexec,nosuid,nodev") });
     QCOMPARE(spec->capabilitiesDropped, QStringList { QStringLiteral("ALL") });
+    QVERIFY(spec->capabilitiesAdded.isEmpty());
     QCOMPARE(spec->securityOptions, QStringList { QStringLiteral("no-new-privileges") });
     QCOMPARE(spec->healthCheck.command,
-             QStringList({ QStringLiteral("/usr/local/bin/amgpt-auth-proxy"), QStringLiteral("healthcheck") }));
+             QStringList({ QStringLiteral("/usr/local/bin/amgpt-device-gateway"), QStringLiteral("healthcheck") }));
 
     const auto labels = spec->deploymentLabels();
     QCOMPARE(labels.size(), 6);
     QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.managed-by")),
              QStringLiteral("amnezia-agent-app"));
-    QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.workload")), QStringLiteral("amgpt-auth-proxy"));
+    QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.workload")),
+             QStringLiteral("amgpt-device-gateway"));
     QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.schema-version")), QStringLiteral("1"));
-    QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.workload-version")), QStringLiteral("v0.2.1"));
+    QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.workload-version")),
+             QStringLiteral("dev"));
     QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.backend-profile")), QStringLiteral("production"));
     QCOMPARE(labels.value(QStringLiteral("org.amnezia.amgpt.deployment.spec-hash")), spec->specHash());
     QCOMPARE(spec->specHash().size(), 64);
@@ -141,18 +161,91 @@ void AgentWorkloadDeploymentSpecTest::createsCompleteAuthProxyDesiredState()
 
 void AgentWorkloadDeploymentSpecTest::keepsOpenClawIndependentFromBackendProfile()
 {
-    OpenClawCodexProtocolConfig config;
-    config.port = QStringLiteral("28789");
-
-    const auto spec = makeAgentWorkloadDeploymentSpec(config);
+    const auto spec = makeAgentWorkloadDeploymentSpec(OpenClawCodexProtocolConfig {});
 
     QVERIFY(spec);
-    QCOMPARE(spec->hostPort, QStringLiteral("28789"));
-    QCOMPARE(spec->containerPort, QStringLiteral("18789"));
     QVERIFY(!spec->backendProfile);
     QVERIFY(!spec->environment.contains(QStringLiteral("AMGPT_AUTH_ISSUER")));
     QVERIFY(!spec->environment.contains(QStringLiteral("AMGPT_ROUTER_BASE_URL")));
+    QVERIFY(!spec->environment.contains(QStringLiteral("AMGPT_AUTH_PROXY_URL")));
     QVERIFY(!spec->deploymentLabels().contains(QStringLiteral("org.amnezia.amgpt.deployment.backend-profile")));
+}
+
+void AgentWorkloadDeploymentSpecTest::createsSupervisedRuntimeDesiredState()
+{
+    const auto spec = makeAgentWorkloadDeploymentSpec(OpenClawCodexProtocolConfig {});
+
+    QVERIFY(spec);
+    QCOMPARE(spec->workload, QStringLiteral("openclaw-codex"));
+    QCOMPARE(spec->containerName, QStringLiteral("amnezia-openclaw-codex"));
+    QVERIFY(spec->networkAlias.isEmpty());
+    QVERIFY(spec->hostPort.isEmpty());
+    QVERIFY(spec->containerPort.isEmpty());
+    // The image owns HOME, CODEX_HOME and OpenClaw paths for each service identity.
+    QVERIFY(spec->environment.isEmpty());
+
+    const QList<AgentWorkloadVolume> expectedVolumes {
+        { QStringLiteral("amnezia-agent-runtime-openclaw-state"), QStringLiteral("/home/openclaw/.openclaw") },
+        { QStringLiteral("amnezia-agent-runtime-workspace"), QStringLiteral("/workspace") },
+        { QStringLiteral("amnezia-agent-runtime-codex-home"), QStringLiteral("/home/codex/.codex") },
+        { QStringLiteral("amnezia-agent-runtime-codex-workspace"), QStringLiteral("/codex-workspace") },
+        { QStringLiteral("amnezia-agent-codex-app-socket"), QStringLiteral("/run/amgpt-codex") },
+    };
+    QCOMPARE(spec->volumes.size(), expectedVolumes.size());
+    for (qsizetype index = 0; index < expectedVolumes.size(); ++index) {
+        QCOMPARE(spec->volumes.at(index).name, expectedVolumes.at(index).name);
+        QCOMPARE(spec->volumes.at(index).target, expectedVolumes.at(index).target);
+    }
+    QCOMPARE(spec->tmpfs, QStringList { QStringLiteral("/tmp:rw,noexec,nosuid,nodev") });
+    QCOMPARE(spec->capabilitiesDropped, QStringList { QStringLiteral("ALL") });
+    QCOMPARE(spec->capabilitiesAdded,
+             QStringList({ QStringLiteral("SETUID"), QStringLiteral("SETGID"), QStringLiteral("KILL") }));
+    QCOMPARE(spec->securityOptions, QStringList { QStringLiteral("no-new-privileges") });
+    QCOMPARE(spec->healthCheck.command,
+             QStringList({ QStringLiteral("node"), QStringLiteral("/opt/workload/bin/runtimectl.mjs"),
+                           QStringLiteral("healthcheck") }));
+    QCOMPARE(spec->healthCheck.startPeriodSeconds, 60);
+    QCOMPARE(spec->stopGracePeriodSeconds, 20);
+}
+
+void AgentWorkloadDeploymentSpecTest::sharesOnlyTheAppSocketVolume()
+{
+    const auto gateway = makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development));
+    const auto runtime = makeAgentWorkloadDeploymentSpec(OpenClawCodexProtocolConfig {});
+    QVERIFY(gateway);
+    QVERIFY(runtime);
+
+    QSet<QString> gatewayVolumes;
+    for (const auto &volume : gateway->volumes) {
+        gatewayVolumes.insert(volume.name + QLatin1Char(':') + volume.target);
+    }
+    QSet<QString> shared;
+    for (const auto &volume : runtime->volumes) {
+        const QString mount = volume.name + QLatin1Char(':') + volume.target;
+        if (gatewayVolumes.contains(mount)) {
+            shared.insert(mount);
+        }
+    }
+    QCOMPARE(shared, QSet<QString> { QStringLiteral("amnezia-agent-codex-app-socket:/run/amgpt-codex") });
+    QCOMPARE(gateway->networkName, runtime->networkName);
+}
+
+void AgentWorkloadDeploymentSpecTest::ignoresPersistedPublishedPorts()
+{
+    const AmgptAuthProxyProtocolConfig gatewayConfig =
+            authProxyConfig(completeCatalog().development, QStringLiteral("18080"));
+    OpenClawCodexProtocolConfig runtimeConfig;
+    runtimeConfig.port = QStringLiteral("28789");
+
+    const auto gateway = makeAgentWorkloadDeploymentSpec(gatewayConfig);
+    const auto runtime = makeAgentWorkloadDeploymentSpec(runtimeConfig);
+
+    QVERIFY(gateway);
+    QVERIFY(runtime);
+    QVERIFY(gateway->hostPort.isEmpty());
+    QVERIFY(runtime->hostPort.isEmpty());
+    QCOMPARE(gateway->specHash(),
+             makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development))->specHash());
 }
 
 void AgentWorkloadDeploymentSpecTest::rejectsMalformedProfileUrls_data()
@@ -203,29 +296,6 @@ void AgentWorkloadDeploymentSpecTest::rejectsMalformedProfileUrls()
     QCOMPARE(error, expectedError);
 }
 
-void AgentWorkloadDeploymentSpecTest::rejectsInvalidPorts_data()
-{
-    QTest::addColumn<QString>("port");
-
-    QTest::newRow("zero") << QStringLiteral("0");
-    QTest::newRow("too-large") << QStringLiteral("65536");
-    QTest::newRow("negative") << QStringLiteral("-1");
-    QTest::newRow("leading-zero") << QStringLiteral("08080");
-    QTest::newRow("not-a-number") << QStringLiteral("https");
-    QTest::newRow("surrounding-space") << QStringLiteral(" 8080");
-}
-
-void AgentWorkloadDeploymentSpecTest::rejectsInvalidPorts()
-{
-    QFETCH(QString, port);
-
-    AgentDeploymentValidationError error = AgentDeploymentValidationError::None;
-    const auto spec = makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development, port), &error);
-
-    QVERIFY(!spec);
-    QCOMPARE(error, AgentDeploymentValidationError::InvalidPort);
-}
-
 void AgentWorkloadDeploymentSpecTest::normalizesEquivalentProfilesBeforeHashing()
 {
     const auto first = makeAgentWorkloadDeploymentSpec(
@@ -244,10 +314,8 @@ void AgentWorkloadDeploymentSpecTest::normalizesEquivalentProfilesBeforeHashing(
 
 void AgentWorkloadDeploymentSpecTest::changesHashWhenDesiredStateChanges()
 {
-    const auto first =
-            makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development, QStringLiteral("18080")));
-    const auto second =
-            makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development, QStringLiteral("18081")));
+    const auto first = makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development));
+    const auto second = makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().production));
 
     QVERIFY(first);
     QVERIFY(second);
@@ -266,10 +334,10 @@ void AgentWorkloadDeploymentSpecTest::rendersOnlyWorkloadOwnedVariables()
     QCOMPARE(proxyVariables.value(QStringLiteral("$AMGPT_AUTH_ISSUER")), QStringLiteral("https://auth-dev.example.com"));
     QCOMPARE(proxyVariables.value(QStringLiteral("$AMGPT_ROUTER_BASE_URL")),
              QStringLiteral("https://router-dev.example.com/v1"));
-    QCOMPARE(proxyVariables.value(QStringLiteral("$AMGPT_AUTH_PROXY_PORT")), QStringLiteral("8080"));
+    QVERIFY(!proxyVariables.contains(QStringLiteral("$AMGPT_DEVICE_GATEWAY_PORT")));
 
     const auto openClawVariables = openClaw->templateVariables();
-    QCOMPARE(openClawVariables.value(QStringLiteral("$OPENCLAW_CODEX_PORT")), QStringLiteral("18789"));
+    QVERIFY(!openClawVariables.contains(QStringLiteral("$OPENCLAW_CODEX_PORT")));
     QVERIFY(!openClawVariables.contains(QStringLiteral("$AMGPT_AUTH_ISSUER")));
     QVERIFY(!openClawVariables.contains(QStringLiteral("$AMGPT_ROUTER_BASE_URL")));
     QVERIFY(!openClawVariables.contains(QStringLiteral("$AGENT_BACKEND_PROFILE")));
@@ -291,6 +359,16 @@ void AgentWorkloadDeploymentSpecTest::validatesCompleteCanonicalSpec()
     auto changedEnvironment = *openClaw;
     changedEnvironment.environment.insert(QStringLiteral("UNDECLARED"), QStringLiteral("value"));
     QCOMPARE(validateAgentWorkloadDeploymentSpec(changedEnvironment),
+             AgentDeploymentValidationError::InvalidDesiredState);
+
+    auto publishedPort = *proxy;
+    publishedPort.hostPort = QStringLiteral("8080");
+    publishedPort.containerPort = QStringLiteral("8080");
+    QCOMPARE(validateAgentWorkloadDeploymentSpec(publishedPort), AgentDeploymentValidationError::InvalidDesiredState);
+
+    auto extraCapability = *openClaw;
+    extraCapability.capabilitiesAdded.append(QStringLiteral("NET_ADMIN"));
+    QCOMPARE(validateAgentWorkloadDeploymentSpec(extraCapability),
              AgentDeploymentValidationError::InvalidDesiredState);
 
     auto unsupported = *openClaw;

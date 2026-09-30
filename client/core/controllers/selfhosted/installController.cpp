@@ -1269,46 +1269,33 @@ AgentWorkloadLoginControllerResult InstallController::startAgentWorkloadLogin(
 {
     AgentWorkloadLoginControllerResult result;
     const auto *adminConfig = &config;
-    if ((mode != AgentWorkloadLoginMode::Native && mode != AgentWorkloadLoginMode::Amgpt)
-        || !adminConfig->credentials().isValid()
-        || !adminConfig->containers.contains(DockerContainer::OpenClawCodex)) {
+    if (mode != AgentWorkloadLoginMode::Amgpt || !adminConfig->credentials().isValid()) {
         return result;
     }
-
-    ContainerConfig openClawConfig = adminConfig->containerConfig(DockerContainer::OpenClawCodex);
-    if (!prepareAgentWorkloadConfig(openClawConfig)) {
+    const DockerContainer target = DockerContainer::AmgptAuthProxy;
+    if (!adminConfig->containers.contains(target)) {
+        result.precondition = AgentWorkloadLoginPrecondition::DeviceGatewayMissing;
         return result;
     }
-    const auto openClawSpec = agentWorkloadSpec(openClawConfig);
-    if (!openClawSpec) {
+    ContainerConfig targetConfig = adminConfig->containerConfig(target);
+    if (!prepareAgentWorkloadConfig(targetConfig)) {
+        return result;
+    }
+    const auto targetSpec = agentWorkloadSpec(targetConfig);
+    if (!targetSpec) {
         return result;
     }
 
     const auto session = createSshSession();
-    const auto openClawObservation = session->observeAgentWorkload(adminConfig->credentials(), *openClawSpec);
-    const AgentWorkloadReconciliationPlan openClawPlan =
-            planAgentWorkloadReconciliation(*openClawSpec, openClawObservation);
-    std::optional<AgentWorkloadReconciliationPlan> authProxyPlan;
-
-    if (mode == AgentWorkloadLoginMode::Amgpt
-        && adminConfig->containers.contains(DockerContainer::AmgptAuthProxy)) {
-        ContainerConfig authProxyConfig = adminConfig->containerConfig(DockerContainer::AmgptAuthProxy);
-        if (!prepareAgentWorkloadConfig(authProxyConfig)) {
-            return result;
-        }
-        const auto authProxySpec = agentWorkloadSpec(authProxyConfig);
-        if (!authProxySpec) {
-            return result;
-        }
-        const auto authProxyObservation = session->observeAgentWorkload(adminConfig->credentials(), *authProxySpec);
-        authProxyPlan = planAgentWorkloadReconciliation(*authProxySpec, authProxyObservation);
-    }
-
-    result.precondition = evaluateAgentWorkloadLoginPrecondition(mode, openClawPlan, authProxyPlan);
+    const auto observation = session->observeAgentWorkload(adminConfig->credentials(), *targetSpec);
+    const AgentWorkloadReconciliationPlan plan = planAgentWorkloadReconciliation(*targetSpec, observation);
+    result.precondition = plan.action == AgentWorkloadReconciliationAction::NoOp
+            ? AgentWorkloadLoginPrecondition::None
+            : AgentWorkloadLoginPrecondition::DeviceGatewayNotReady;
     if (result.precondition != AgentWorkloadLoginPrecondition::None) {
         return result;
     }
-    result.startResult = session->startAgentWorkloadLogin(adminConfig->credentials(), *openClawSpec, mode);
+    result.startResult = session->startAgentWorkloadLogin(adminConfig->credentials(), *targetSpec, mode);
     return result;
 }
 
@@ -1319,11 +1306,14 @@ AgentWorkloadLoginStatusResult InstallController::queryAgentWorkloadLoginStatus(
         return {};
     }
     const auto adminConfig = m_serversRepository->selfHostedAdminConfig(serverId);
-    if (!adminConfig || !adminConfig->credentials().isValid()
-        || !adminConfig->containers.contains(DockerContainer::OpenClawCodex)) {
+    if (!adminConfig || !adminConfig->credentials().isValid() || mode != AgentWorkloadLoginMode::Amgpt) {
         return {};
     }
-    ContainerConfig config = adminConfig->containerConfig(DockerContainer::OpenClawCodex);
+    const DockerContainer target = DockerContainer::AmgptAuthProxy;
+    if (!adminConfig->containers.contains(target)) {
+        return {};
+    }
+    ContainerConfig config = adminConfig->containerConfig(target);
     if (!prepareAgentWorkloadConfig(config)) {
         return {};
     }

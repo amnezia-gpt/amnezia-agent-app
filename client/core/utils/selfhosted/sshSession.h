@@ -82,11 +82,11 @@ public:
                                                               AgentWorkloadLifecycleAction action);
 
     AgentWorkloadLoginStartResult startAgentWorkloadLogin(const ServerCredentials &credentials,
-                                                          const AgentWorkloadDeploymentSpec &openClawDesired,
+                                                          const AgentWorkloadDeploymentSpec &desired,
                                                           AgentWorkloadLoginMode mode);
 
     AgentWorkloadLoginStatusResult queryAgentWorkloadLoginStatus(const ServerCredentials &credentials,
-                                                                 const AgentWorkloadDeploymentSpec &openClawDesired,
+                                                                 const AgentWorkloadDeploymentSpec &desired,
                                                                  AgentWorkloadLoginMode mode);
 
     ErrorCode getDecryptedPrivateKey(const ServerCredentials &credentials, QString &decryptedPrivateKey,

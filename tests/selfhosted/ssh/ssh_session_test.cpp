@@ -143,7 +143,6 @@ namespace
     AgentWorkloadDeploymentSpec testOpenClawSpec()
     {
         OpenClawCodexProtocolConfig config;
-        config.port = QStringLiteral("18789");
         const auto spec = makeAgentWorkloadDeploymentSpec(config);
         Q_ASSERT(spec);
         return *spec;
@@ -153,7 +152,6 @@ namespace
     testAuthProxySpec(const QString &issuer = QStringLiteral("https://auth-dev.example.com"))
     {
         AmgptAuthProxyProtocolConfig config;
-        config.port = QStringLiteral("8080");
         config.backendProfile = QStringLiteral("development");
         config.authIssuer = issuer;
         config.routerBaseUrl = QStringLiteral("https://router-dev.example.com/v1");
@@ -179,6 +177,7 @@ namespace
 
     QByteArray equivalentContainerObservation(const AgentWorkloadDeploymentSpec &spec, bool running = true)
     {
+        const bool published = !spec.hostPort.isEmpty();
         QJsonArray mounts;
         for (const auto &volume : spec.volumes) {
             mounts.append(QJsonObject { { QStringLiteral("type"), QStringLiteral("volume") },
@@ -209,10 +208,11 @@ namespace
             { QStringLiteral("tmpfs"), tmpfs },
             { QStringLiteral("networks"), QJsonArray { spec.networkName } },
             { QStringLiteral("ports"),
-              QJsonArray { QJsonObject { { QStringLiteral("host_ip"), QStringLiteral("0.0.0.0") },
-                                         { QStringLiteral("host_port"), spec.hostPort },
-                                         { QStringLiteral("container_port"), spec.containerPort },
-                                         { QStringLiteral("protocol"), QStringLiteral("tcp") } } } },
+              published ? QJsonArray { QJsonObject { { QStringLiteral("host_ip"), QStringLiteral("0.0.0.0") },
+                                                     { QStringLiteral("host_port"), spec.hostPort },
+                                                     { QStringLiteral("container_port"), spec.containerPort },
+                                                     { QStringLiteral("protocol"), QStringLiteral("tcp") } } }
+                        : QJsonArray {} },
             { QStringLiteral("labels"), labels },
         };
         return QJsonDocument(QJsonObject {
@@ -222,10 +222,12 @@ namespace
                                                      { QStringLiteral("container_name"), spec.containerName },
                                                      { QStringLiteral("host_port"), spec.hostPort } } },
                                      { QStringLiteral("container"), container },
-                                     { QStringLiteral("host_port_in_use"), running },
+                                     { QStringLiteral("host_port_in_use"), published && running },
                                      { QStringLiteral("port_owners"),
-                                       QJsonArray { QJsonObject { { QStringLiteral("id"), QStringLiteral("container-id") },
-                                                                  { QStringLiteral("name"), spec.containerName } } } },
+                                       published ? QJsonArray { QJsonObject {
+                                                           { QStringLiteral("id"), QStringLiteral("container-id") },
+                                                           { QStringLiteral("name"), spec.containerName } } }
+                                                 : QJsonArray {} },
                              })
                 .toJson(QJsonDocument::Compact);
     }
@@ -635,10 +637,10 @@ void SshSessionTest::agentWorkloadObservationUsesOneBoundedAllowlistedCommand()
     QVERIFY(!command.contains(QLatin1Char('\n')));
     QVERIFY(command.contains(QStringLiteral("docker container inspect --format")));
     QVERIFY(!command.contains(QStringLiteral("--type")));
-    QVERIFY(command.contains(QStringLiteral("docker container ls -a --no-trunc")));
-    QVERIFY(command.contains(QStringLiteral("lsof -nP -iTCP:")));
+    // An unpublished workload has no host port to probe or claim.
+    QVERIFY(!command.contains(QStringLiteral("lsof")));
+    QVERIFY(!command.contains(QStringLiteral("publish=")));
     QVERIFY(command.contains(spec.containerName));
-    QVERIFY(command.contains(spec.hostPort));
     QVERIFY(command.contains(QStringLiteral("org.amnezia.amgpt.deployment.spec-hash")));
     QVERIFY(!command.contains(QStringLiteral("%%s")));
     QVERIFY(!command.contains(QStringLiteral(".Config.Env")));
@@ -646,6 +648,24 @@ void SshSessionTest::agentWorkloadObservationUsesOneBoundedAllowlistedCommand()
 
     QProcess shell;
     shell.start(QStringLiteral("/bin/sh"), { QStringLiteral("-n"), QStringLiteral("-c"), command });
+    QVERIFY(shell.waitForFinished());
+    QCOMPARE(shell.exitCode(), 0);
+
+    auto published = spec;
+    published.hostPort = QStringLiteral("18443");
+    auto publishedRunner = std::make_unique<FakeCommandRunner>();
+    auto *publishedFake = publishedRunner.get();
+    publishedFake->commandOutcomes = {
+        { ErrorCode::NoError, QString::fromUtf8(missingContainerObservation(published)), {} },
+    };
+    SshSession publishedSession(nullptr, std::move(publishedRunner));
+    QCOMPARE(publishedSession.observeAgentWorkload(testCredentials(), published).error,
+             AgentWorkloadObservationError::None);
+    const QString publishedCommand = publishedFake->commands.constFirst();
+    QVERIFY(publishedCommand.contains(QStringLiteral("lsof -nP -iTCP:")));
+    QVERIFY(publishedCommand.contains(QStringLiteral("publish=${port}/tcp")));
+    QVERIFY(publishedCommand.contains(QStringLiteral("port='18443'")));
+    shell.start(QStringLiteral("/bin/sh"), { QStringLiteral("-n"), QStringLiteral("-c"), publishedCommand });
     QVERIFY(shell.waitForFinished());
     QCOMPARE(shell.exitCode(), 0);
 }
@@ -702,13 +722,19 @@ void SshSessionTest::agentWorkloadApplyRendererUsesExactBoundedPlaybook()
     QVERIFY(script->contains(QStringLiteral("docker container run --detach --pull=never")));
     QVERIFY(script->contains(QStringLiteral("--restart 'unless-stopped'")));
     QVERIFY(script->contains(QStringLiteral("--cap-drop 'ALL'")));
+    QVERIFY(script->contains(QStringLiteral("--cap-add 'SETUID'")));
+    QVERIFY(script->contains(QStringLiteral("--cap-add 'SETGID'")));
+    QVERIFY(script->contains(QStringLiteral("--cap-add 'KILL'")));
+    QVERIFY(script->contains(QStringLiteral("--volume 'amnezia-agent-codex-app-socket:/run/amgpt-codex'")));
+    QVERIFY(!script->contains(QStringLiteral("--publish")));
+    QVERIFY(!script->contains(QStringLiteral("--user")));
     QVERIFY(script->contains(QStringLiteral("--security-opt 'no-new-privileges'")));
     QVERIFY(!script->contains(QStringLiteral("--health-cmd")));
     QVERIFY(!script->contains(QStringLiteral("--network-alias ''")));
     QVERIFY(script->contains(QStringLiteral("AMNEZIA_AGENT_APPLY_APPLIED")));
     QVERIFY(!script->contains(QStringLiteral("docker volume rm")));
     QVERIFY(!script->contains(QStringLiteral("docker network rm")));
-    QVERIFY(!script->contains(QStringLiteral("amnezia-amgpt-auth-proxy-state")));
+    QVERIFY(!script->contains(QStringLiteral("amnezia-amgpt-device-gateway-state")));
 
     QProcess shell;
     shell.start(QStringLiteral("/bin/sh"), { QStringLiteral("-n"), QStringLiteral("-c"), *script });
@@ -719,7 +745,11 @@ void SshSessionTest::agentWorkloadApplyRendererUsesExactBoundedPlaybook()
     const auto proxyScript = renderAgentWorkloadApplyScript(proxy, AgentWorkloadReconciliationAction::Recreate);
     QVERIFY(proxyScript);
     QVERIFY(!proxyScript->contains(QStringLiteral("--health-cmd")));
-    QVERIFY(proxyScript->contains(QStringLiteral("--network-alias 'amgpt-auth-proxy'")));
+    QVERIFY(proxyScript->contains(QStringLiteral("--network-alias 'amgpt-device-gateway'")));
+    QVERIFY(!proxyScript->contains(QStringLiteral("--publish")));
+    QVERIFY(!proxyScript->contains(QStringLiteral("--cap-add")));
+    QVERIFY(!proxyScript->contains(QStringLiteral("--user")));
+    QVERIFY(proxyScript->contains(QStringLiteral("--volume 'amnezia-agent-codex-app-socket:/run/amgpt-codex'")));
     QVERIFY(proxyScript->contains(
             QStringLiteral("--env 'AMGPT_AUTH_ISSUER=https://auth-dev.example.com/tenant;printf'")));
     QVERIFY(proxyScript->contains(QStringLiteral("--env 'AMGPT_ROUTER_BASE_URL=https://router-dev.example.com/v1'")));
@@ -756,8 +786,8 @@ docker() {
         QCOMPARE(shell.exitCode(), 0);
         QCOMPARE(output.count("RUN\n"), 1);
         QVERIFY(output.contains((QLatin1Char('<') + spec.imageReference + QStringLiteral(">\n")).toUtf8()));
-        QVERIFY(output.contains((QLatin1Char('<') + spec.hostPort + QLatin1Char(':') + spec.containerPort
-                                 + QStringLiteral("/tcp>\n")).toUtf8()));
+        QVERIFY(!output.contains("<--publish>"));
+        QCOMPARE(output.contains("<--cap-add>"), !spec.capabilitiesAdded.isEmpty());
         QCOMPARE(output.contains("<--network-alias>"), !spec.networkAlias.isEmpty());
         QVERIFY(output.contains("<--health-start-period>"));
         QVERIFY(output.contains("AMNEZIA_AGENT_APPLY_APPLIED"));
@@ -1007,7 +1037,7 @@ void SshSessionTest::agentWorkloadLifecycleStopsOnlyOwnedTarget()
     QVERIFY(fake->commands.at(1).contains(spec.containerName));
     QVERIFY(!fake->commands.at(1).contains(QStringLiteral("docker volume")));
     QVERIFY(!fake->commands.at(1).contains(QStringLiteral("docker network")));
-    QVERIFY(!fake->commands.at(1).contains(QStringLiteral("amnezia-amgpt-auth-proxy")));
+    QVERIFY(!fake->commands.at(1).contains(QStringLiteral("amnezia-amgpt-device-gateway")));
 }
 
 void SshSessionTest::agentWorkloadLifecycleRemovesOnlyOwnedTarget()
@@ -1087,9 +1117,9 @@ void SshSessionTest::agentWorkloadLifecycleRejectsConflictAndClassifiesUnknown()
 
 void SshSessionTest::agentLoginStartUsesOwnedHealthyContainerAndExactCommand()
 {
-    const auto spec = testOpenClawSpec();
+    const auto spec = testAuthProxySpec();
     const QString presentation = QString::fromLatin1(
-            R"({"schema_version":1,"mode":"native","state":"pending","verification_uri":"https://auth.example/device","verification_uri_complete":null,"user_code":"ABCD-EFGH","expires_in":null,"error_code":null})");
+            R"({"schema_version":1,"mode":"amgpt","state":"pending","verification_uri":"https://auth.example/device","verification_uri_complete":null,"user_code":"ABCD-EFGH","expires_in":null,"error_code":null})");
     auto runner = std::make_unique<FakeCommandRunner>();
     auto *fake = runner.get();
     fake->commandOutcomes = {
@@ -1098,19 +1128,19 @@ void SshSessionTest::agentLoginStartUsesOwnedHealthyContainerAndExactCommand()
     };
     SshSession session(nullptr, std::move(runner));
 
-    const auto result = session.startAgentWorkloadLogin(testCredentials(), spec, AgentWorkloadLoginMode::Native);
+    const auto result = session.startAgentWorkloadLogin(testCredentials(), spec, AgentWorkloadLoginMode::Amgpt);
 
     QCOMPARE(result.error, AgentWorkloadLoginOperationError::None);
     QVERIFY(result.presentation);
     QCOMPARE(result.presentation->userCode, QStringLiteral("ABCD-EFGH"));
     QCOMPARE(fake->commands.size(), 2);
     QCOMPARE(fake->commands.at(1),
-             QStringLiteral("timeout 25s sudo -n docker exec -i amnezia-openclaw-codex workloadctl login start native --json"));
+             QStringLiteral("timeout 95s sudo -n docker exec -i amnezia-amgpt-device-gateway workloadctl login start amgpt --json"));
 }
 
 void SshSessionTest::agentLoginRejectsUnhealthyContainerBeforeExec()
 {
-    const auto spec = testOpenClawSpec();
+    const auto spec = testAuthProxySpec();
     auto runner = std::make_unique<FakeCommandRunner>();
     auto *fake = runner.get();
     fake->commandOutcomes = {
@@ -1126,7 +1156,7 @@ void SshSessionTest::agentLoginRejectsUnhealthyContainerBeforeExec()
 
 void SshSessionTest::agentLoginBoundsOutputAndParsesStatus()
 {
-    const auto spec = testOpenClawSpec();
+    const auto spec = testAuthProxySpec();
     {
         auto runner = std::make_unique<FakeCommandRunner>();
         auto *fake = runner.get();
@@ -1136,7 +1166,7 @@ void SshSessionTest::agentLoginBoundsOutputAndParsesStatus()
         };
         SshSession session(nullptr, std::move(runner));
 
-        const auto result = session.startAgentWorkloadLogin(testCredentials(), spec, AgentWorkloadLoginMode::Native);
+        const auto result = session.startAgentWorkloadLogin(testCredentials(), spec, AgentWorkloadLoginMode::Amgpt);
 
         QCOMPARE(result.error, AgentWorkloadLoginOperationError::OutputTooLarge);
         QVERIFY(!result.presentation);
@@ -1159,7 +1189,7 @@ void SshSessionTest::agentLoginBoundsOutputAndParsesStatus()
         QVERIFY(result.status);
         QCOMPARE(result.status->state, AgentWorkloadLoginState::LoginRequired);
         QCOMPARE(fake->commands.at(1),
-                 QStringLiteral("timeout 10s sudo -n docker exec -i amnezia-openclaw-codex workloadctl login status amgpt --json"));
+                 QStringLiteral("timeout 10s sudo -n docker exec -i amnezia-amgpt-device-gateway workloadctl login status amgpt --json"));
     }
 }
 

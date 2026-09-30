@@ -281,6 +281,9 @@ namespace amnezia
                         != QSet<QString> { desired.networkName }) {
                 return false;
             }
+            if (desired.hostPort.isEmpty()) {
+                return observed.ports.isEmpty();
+            }
             if (observed.ports.isEmpty()) {
                 return false;
             }
@@ -341,11 +344,14 @@ namespace amnezia
 
         ObservedDeploymentState state;
         const QJsonObject target = root.value(QStringLiteral("target")).toObject();
+        // An unpublished workload is observed with an empty target port.
+        const QJsonValue targetHostPort = target.value(QStringLiteral("host_port"));
         if (!requiredString(target, QStringLiteral("workload"), &state.workload)
             || !requiredString(target, QStringLiteral("container_name"), &state.targetContainerName)
-            || !requiredString(target, QStringLiteral("host_port"), &state.targetHostPort)) {
+            || !targetHostPort.isString()) {
             return failure(AgentWorkloadObservationError::InvalidEnvelope);
         }
+        state.targetHostPort = targetHostPort.toString();
         if (state.workload != desired.workload || state.targetContainerName != desired.containerName
             || state.targetHostPort != desired.hostPort) {
             return failure(AgentWorkloadObservationError::TargetMismatch);

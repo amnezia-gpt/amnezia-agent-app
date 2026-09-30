@@ -52,7 +52,6 @@ private slots:
     void parsesBoundedRemoteFailureWithoutProviderText();
     void acceptsUnattributedRemoteFailure();
     void parsesStatusStatesAndRejectsContradictions();
-    void evaluatesModeSpecificDeploymentPreconditions();
 };
 
 void AgentWorkloadLoginTest::parsesNativePresentationWithNullableExpiry()
@@ -206,29 +205,6 @@ void AgentWorkloadLoginTest::parsesStatusStatesAndRejectsContradictions()
             AgentWorkloadLoginMode::Native);
     QCOMPARE(contradiction.error, AgentWorkloadLoginParseError::InvalidField);
     QVERIFY(!contradiction.status);
-}
-
-void AgentWorkloadLoginTest::evaluatesModeSpecificDeploymentPreconditions()
-{
-    const AgentWorkloadReconciliationPlan ready {
-        AgentWorkloadReconciliationAction::NoOp,
-        AgentWorkloadReconciliationReason::EquivalentAndRunning,
-    };
-    const AgentWorkloadReconciliationPlan unhealthy {
-        AgentWorkloadReconciliationAction::Recreate,
-        AgentWorkloadReconciliationReason::ContainerUnhealthy,
-    };
-
-    QCOMPARE(evaluateAgentWorkloadLoginPrecondition(AgentWorkloadLoginMode::Native, ready, std::nullopt),
-             AgentWorkloadLoginPrecondition::None);
-    QCOMPARE(evaluateAgentWorkloadLoginPrecondition(AgentWorkloadLoginMode::Amgpt, ready, std::nullopt),
-             AgentWorkloadLoginPrecondition::AuthProxyMissing);
-    QCOMPARE(evaluateAgentWorkloadLoginPrecondition(AgentWorkloadLoginMode::Amgpt, ready, unhealthy),
-             AgentWorkloadLoginPrecondition::AuthProxyNotReady);
-    QCOMPARE(evaluateAgentWorkloadLoginPrecondition(AgentWorkloadLoginMode::Amgpt, unhealthy, ready),
-             AgentWorkloadLoginPrecondition::OpenClawNotReady);
-    QCOMPARE(evaluateAgentWorkloadLoginPrecondition(AgentWorkloadLoginMode::Amgpt, ready, ready),
-             AgentWorkloadLoginPrecondition::None);
 }
 
 QTEST_APPLESS_MAIN(AgentWorkloadLoginTest)

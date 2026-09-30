@@ -27,7 +27,6 @@ namespace amnezia
         InvalidBackendProfileId,
         InvalidAuthIssuer,
         InvalidRouterBaseUrl,
-        InvalidPort,
         UnsupportedWorkload,
         InvalidDesiredState,
     };
@@ -71,6 +70,7 @@ namespace amnezia
         QString containerName;
         QString networkName;
         QString networkAlias;
+        // Empty when the workload publishes no host port.
         QString hostPort;
         QString containerPort;
         QString restartPolicy;
@@ -78,6 +78,7 @@ namespace amnezia
         QList<AgentWorkloadVolume> volumes;
         QStringList tmpfs;
         QStringList capabilitiesDropped;
+        QStringList capabilitiesAdded;
         QStringList securityOptions;
         AgentWorkloadHealthCheck healthCheck;
         int stopGracePeriodSeconds = 0;

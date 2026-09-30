@@ -1,7 +1,7 @@
 <RCC>
     <qresource prefix="/server_scripts">
-        <file>amgpt-auth-proxy/Dockerfile</file>
-        <file>amgpt-auth-proxy/run_container.sh</file>
+        <file>amgpt-device-gateway/Dockerfile</file>
+        <file>amgpt-device-gateway/run_container.sh</file>
         <file>awg/configure_container.sh</file>
         <file>awg/Dockerfile</file>
         <file>awg/run_container.sh</file>

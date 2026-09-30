@@ -151,25 +151,6 @@ namespace amnezia
                 && !hasControlCharacters(url.toString(QUrl::FullyEncoded));
     }
 
-    AgentWorkloadLoginPrecondition evaluateAgentWorkloadLoginPrecondition(
-            AgentWorkloadLoginMode mode, const AgentWorkloadReconciliationPlan &openClaw,
-            const std::optional<AgentWorkloadReconciliationPlan> &authProxy)
-    {
-        if (openClaw.action != AgentWorkloadReconciliationAction::NoOp) {
-            return AgentWorkloadLoginPrecondition::OpenClawNotReady;
-        }
-        if (mode == AgentWorkloadLoginMode::Native) {
-            return AgentWorkloadLoginPrecondition::None;
-        }
-        if (!authProxy) {
-            return AgentWorkloadLoginPrecondition::AuthProxyMissing;
-        }
-        if (authProxy->action != AgentWorkloadReconciliationAction::NoOp) {
-            return AgentWorkloadLoginPrecondition::AuthProxyNotReady;
-        }
-        return AgentWorkloadLoginPrecondition::None;
-    }
-
     AgentWorkloadLoginStartParseResult parseAgentWorkloadLoginStart(const QByteArray &payload,
                                                                     AgentWorkloadLoginMode expectedMode)
     {

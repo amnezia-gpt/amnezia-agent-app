@@ -357,17 +357,17 @@ namespace
               true,
               { "Dockerfile", "run_container.sh", "configure_container.sh", "start.sh" } },
             { DockerContainer::AmgptAuthProxy,
-              "amnezia-amgpt-auth-proxy",
-              "amgpt-auth-proxy",
-              "amgptauthproxy",
-              "AMGPT Auth Proxy",
+              "amnezia-amgpt-device-gateway",
+              "amgpt-device-gateway",
+              "amgptdevicegateway",
+              "AMGPT Device Gateway",
               Proto::AmgptAuthProxy,
               ServiceType::Other,
               expectedPlatformSupport(DockerContainer::AmgptAuthProxy),
               false,
               21,
               {},
-              "amgpt-auth-proxy",
+              "amgpt-device-gateway",
               true,
               true,
               { "Dockerfile", "run_container.sh" } },
@@ -483,15 +483,19 @@ class ContainerRegistryContractTest : public QObject
     Q_OBJECT
 
 private slots:
-    void nativeLoginUiIsFeatureGated()
+    void deviceGatewayOwnsTheOnlyLoginUi()
     {
         QFile file(sourceRoot() + QStringLiteral("/client/ui/qml/Pages2/PageServiceAgentWorkloadSettings.qml"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QByteArray source = file.readAll();
-        QVERIFY(source.contains("readonly property bool nativeLoginEnabled: false"));
-        QCOMPARE(source.count("visible: root.nativeLoginEnabled && !root.isAuthProxy"), 3);
+        QVERIFY(source.contains(
+            "property bool isDeviceGateway: savedConfig.container === \"amnezia-amgpt-device-gateway\""));
+        QVERIFY(source.contains("visible: root.isDeviceGateway && root.currentAction === root.actionNoOp"));
         QVERIFY(source.contains("property int selectedLoginMode: loginAmgpt"));
-        QVERIFY(source.contains("Sign in with Amnezia GPT"));
+        QCOMPARE(source.count("Sign in with Amnezia GPT"), 1);
+        QVERIFY(!source.contains("Sign in with ChatGPT"));
+        QVERIFY(!source.contains("nativeLoginEnabled"));
+        QVERIFY(!source.contains("Open Amnezia GPT Proxy"));
     }
     void enumRowsAreClassified_data();
     void enumRowsAreClassified();
@@ -827,16 +831,18 @@ void ContainerRegistryContractTest::agentWorkloadConfigsRoundTripIndependently()
     };
 
     const QJsonObject proxyJson = proxy.toJson();
-    QCOMPARE(proxyJson.value(QStringLiteral("container")).toString(), QStringLiteral("amnezia-amgpt-auth-proxy"));
-    QVERIFY(proxyJson.contains(QStringLiteral("amgptauthproxy")));
+    QCOMPARE(proxyJson.value(QStringLiteral("container")).toString(), QStringLiteral("amnezia-amgpt-device-gateway"));
+    QVERIFY(proxyJson.contains(QStringLiteral("amgptdevicegateway")));
     QVERIFY(!proxyJson.contains(QStringLiteral("openclawcodex")));
     const ContainerConfig restoredProxy = ContainerConfig::fromJson(proxyJson);
     QCOMPARE(restoredProxy.container, DockerContainer::AmgptAuthProxy);
     QCOMPARE(restoredProxy.protocolConfig.type(), Proto::AmgptAuthProxy);
-    QCOMPARE(restoredProxy.protocolConfig.port(), QStringLiteral("18080"));
+    // A legacy persisted port round-trips but is never reported as a published port.
+    QVERIFY(restoredProxy.protocolConfig.port().isEmpty());
     QCOMPARE(restoredProxy.protocolConfig.transportProto(), QStringLiteral("tcp"));
     const auto *restoredProxyConfig = restoredProxy.getAmgptAuthProxyProtocolConfig();
     QVERIFY(restoredProxyConfig != nullptr);
+    QCOMPARE(restoredProxyConfig->port, QStringLiteral("18080"));
     QCOMPARE(restoredProxyConfig->backendProfile, QStringLiteral("development"));
     QCOMPARE(restoredProxyConfig->authIssuer, QStringLiteral("https://auth-dev.example.com"));
     QCOMPARE(restoredProxyConfig->routerBaseUrl, QStringLiteral("https://router-dev.example.com/v1"));
@@ -848,23 +854,24 @@ void ContainerRegistryContractTest::agentWorkloadConfigsRoundTripIndependently()
     const QJsonObject workloadJson = workload.toJson();
     QCOMPARE(workloadJson.value(QStringLiteral("container")).toString(), QStringLiteral("amnezia-openclaw-codex"));
     QVERIFY(workloadJson.contains(QStringLiteral("openclawcodex")));
-    QVERIFY(!workloadJson.contains(QStringLiteral("amgptauthproxy")));
+    QVERIFY(!workloadJson.contains(QStringLiteral("amgptdevicegateway")));
     const ContainerConfig restoredWorkload = ContainerConfig::fromJson(workloadJson);
     QCOMPARE(restoredWorkload.container, DockerContainer::OpenClawCodex);
     QCOMPARE(restoredWorkload.protocolConfig.type(), Proto::OpenClawCodex);
-    QCOMPARE(restoredWorkload.protocolConfig.port(), QStringLiteral("28789"));
+    QVERIFY(restoredWorkload.protocolConfig.port().isEmpty());
     QCOMPARE(restoredWorkload.protocolConfig.transportProto(), QStringLiteral("tcp"));
 
-    QCOMPARE(ProtocolUtils::defaultPort(Proto::AmgptAuthProxy), 8080);
-    QCOMPARE(ProtocolUtils::defaultPort(Proto::OpenClawCodex), 18789);
+    // Agent workloads publish no host port, so the installer offers none.
+    QCOMPARE(ProtocolUtils::defaultPort(Proto::AmgptAuthProxy), -1);
+    QCOMPARE(ProtocolUtils::defaultPort(Proto::OpenClawCodex), -1);
     QVERIFY(ProtocolUtils::allProtocols().contains(Proto::AmgptAuthProxy));
     QVERIFY(ProtocolUtils::allProtocols().contains(Proto::OpenClawCodex));
-    QCOMPARE(ProtocolUtils::protoFromString(QStringLiteral("amgptauthproxy")), Proto::AmgptAuthProxy);
+    QCOMPARE(ProtocolUtils::protoFromString(QStringLiteral("amgptdevicegateway")), Proto::AmgptAuthProxy);
     QCOMPARE(ProtocolUtils::protoFromString(QStringLiteral("openclawcodex")), Proto::OpenClawCodex);
     QCOMPARE(ProtocolUtils::defaultTransportProto(Proto::AmgptAuthProxy), TransportProto::Tcp);
     QCOMPARE(ProtocolUtils::defaultTransportProto(Proto::OpenClawCodex), TransportProto::Tcp);
-    QVERIFY(ProtocolUtils::defaultPortChangeable(Proto::AmgptAuthProxy));
-    QVERIFY(ProtocolUtils::defaultPortChangeable(Proto::OpenClawCodex));
+    QVERIFY(!ProtocolUtils::defaultPortChangeable(Proto::AmgptAuthProxy));
+    QVERIFY(!ProtocolUtils::defaultPortChangeable(Proto::OpenClawCodex));
 }
 
 void ContainerRegistryContractTest::agentWorkloadDesiredStateFlowsThroughScriptRegistry()
@@ -879,12 +886,12 @@ void ContainerRegistryContractTest::agentWorkloadDesiredStateFlowsThroughScriptR
     };
 
     const ScriptVars proxyVars = genProtocolVarsForContainer(DockerContainer::AmgptAuthProxy, proxy);
-    assertVariable(proxyVars, QStringLiteral("$AMGPT_AUTH_PROXY_PORT"), QStringLiteral("18080"));
+    QVERIFY(!mapKeys(proxyVars).contains(QStringLiteral("$AMGPT_DEVICE_GATEWAY_PORT")));
     assertVariable(proxyVars, QStringLiteral("$AMGPT_AUTH_ISSUER"), QStringLiteral("https://auth-dev.example.com"));
     assertVariable(proxyVars, QStringLiteral("$AMGPT_ROUTER_BASE_URL"),
                    QStringLiteral("https://router-dev.example.com/v1"));
     assertVariable(proxyVars, QStringLiteral("$AGENT_BACKEND_PROFILE"), QStringLiteral("development"));
-    assertVariable(proxyVars, QStringLiteral("$AGENT_WORKLOAD_ID"), QStringLiteral("amgpt-auth-proxy"));
+    assertVariable(proxyVars, QStringLiteral("$AGENT_WORKLOAD_ID"), QStringLiteral("amgpt-device-gateway"));
     QCOMPARE(variable(proxyVars, QStringLiteral("$AGENT_DEPLOYMENT_SPEC_HASH")).size(), 64);
 
     ContainerConfig openClaw;
@@ -892,7 +899,7 @@ void ContainerRegistryContractTest::agentWorkloadDesiredStateFlowsThroughScriptR
     openClaw.protocolConfig = OpenClawCodexProtocolConfig { QStringLiteral("28789") };
 
     const ScriptVars openClawVars = genProtocolVarsForContainer(DockerContainer::OpenClawCodex, openClaw);
-    assertVariable(openClawVars, QStringLiteral("$OPENCLAW_CODEX_PORT"), QStringLiteral("28789"));
+    QVERIFY(!mapKeys(openClawVars).contains(QStringLiteral("$OPENCLAW_CODEX_PORT")));
     assertVariable(openClawVars, QStringLiteral("$AGENT_WORKLOAD_ID"), QStringLiteral("openclaw-codex"));
     QVERIFY(!mapKeys(openClawVars).contains(QStringLiteral("$AMGPT_AUTH_ISSUER")));
     QVERIFY(!mapKeys(openClawVars).contains(QStringLiteral("$AMGPT_ROUTER_BASE_URL")));

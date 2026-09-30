@@ -98,8 +98,6 @@ public slots:
     int defaultTransportProto(int protocolIndex);
     bool defaultPortChangeable(int protocolIndex);
     bool defaultTransportProtoChangeable(int protocolIndex);
-    Q_INVOKABLE int amgptAuthProxyContainerIndex() const;
-
 signals:
     void installContainerFinished(const QString &finishMessage, bool isServiceInstall);
     void installServerFinished(const QString &finishMessage);
