@@ -31,18 +31,15 @@ particular deployment. Do not add operator-specific smoke evidence here.
 ## One-shot SSH commands (default)
 
 Default to one command per SSH connection: stream stdout/stderr and disconnect
-when it completes. Do not require a persistent SSH shell or TUI unless requested.
+when it completes. Give copy/paste commands on one physical line with balanced
+quotes; avoid multi-line quoted SSH payloads. If a shell is awaiting more input,
+Ctrl+C cancels that incomplete input. Do not require a persistent SSH shell or TUI unless requested.
 Substitute the operator's connection coordinates without storing them here.
 
 OpenClaw CLI verbose progress and final reply:
 
 ```sh
-ssh -T -p <ssh-port> -i <private-key> <ssh-user>@<host> '
-docker exec -u openclaw -w /workspace amnezia-openclaw-codex \
-  openclaw agent --local --agent main --session-id ssh-openclaw-smoke \
-  --verbose on --timeout 180 \
-  --message "First explain your next step, then run pwd and printf OPENCLAW_OK using your shell tool, and explain the result."
-'
+ssh -T -p <ssh-port> -i <private-key> <ssh-user>@<host> 'docker exec -u openclaw -w /workspace amnezia-openclaw-codex openclaw agent --local --agent main --session-id ssh-openclaw-smoke --verbose on --timeout 180 --message "First explain your next step, then run pwd and printf OPENCLAW_OK using your shell tool, and explain the result."'
 ```
 
 CLI verbose output is not the TUI or a token-by-token response stream. Keep
