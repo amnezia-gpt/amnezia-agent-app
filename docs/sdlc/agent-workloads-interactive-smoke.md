@@ -36,14 +36,37 @@ quotes; avoid multi-line quoted SSH payloads. If a shell is awaiting more input,
 Ctrl+C cancels that incomplete input. Do not require a persistent SSH shell or TUI unless requested.
 Substitute the operator's connection coordinates without storing them here.
 
-OpenClaw CLI verbose progress and final reply:
+OpenClaw: use a temporary TTY (`ssh -t` and `docker exec -it`) and explicit
+`--log-level info` plus `--verbose on`. The remote command exits on completion;
+no persistent SSH shell or TUI is started. Keep one physical line per command.
+
+First turn:
 
 ```sh
-ssh -T -p <ssh-port> -i <private-key> <ssh-user>@<host> 'docker exec -u openclaw -w /workspace amnezia-openclaw-codex openclaw agent --local --agent main --session-id ssh-openclaw-smoke --verbose on --timeout 180 --message "First explain your next step, then run pwd and printf OPENCLAW_OK using your shell tool, and explain the result."'
+ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-1 --verbose on --timeout 180 --message "Reply with exactly SMOKE_OK."'
 ```
 
-CLI verbose output is not the TUI or a token-by-token response stream. Keep
-stderr visible; do not pipe it into a final-result-only parser.
+Second turn with the same agent conversation:
+
+```sh
+ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-1 --verbose on --timeout 180 --message "What exact phrase did I ask you to reply with in my previous message?"'
+```
+
+Tool execution in a separate conversation:
+
+```sh
+ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-2 --verbose on --timeout 180 --message "Run uname -a using your shell tool and explain its output."'
+```
+
+Free-form question:
+
+```sh
+ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-3 --verbose on --timeout 180 --message "Explain Docker briefly in two sentences."'
+```
+
+The session ID selects agent conversation history, not a persistent SSH session.
+CLI verbose output is not a token-by-token response stream. Keep stderr visible;
+do not pipe it into a final-result-only parser.
 
 Codex progress and tool output, using the managed profile:
 

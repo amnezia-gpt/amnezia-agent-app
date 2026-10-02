@@ -27,7 +27,9 @@ browser-mediated authorization proof of concept described in
    the public runbook; it contains only the generic workload contract.
    Default to one-shot SSH commands that stream output and disconnect on
    completion. Give copy/paste SSH commands on one physical line with balanced
-   quotes. Offer a persistent SSH shell or TUI only when explicitly requested.
+   quotes. For OpenClaw use temporary TTY (`ssh -t`, `docker exec -it`) with
+   `--log-level info` and `--verbose on`; retain the same agent session ID for
+   continuation. Offer a persistent SSH shell or TUI only when explicitly requested.
 
 ## Branch and upstream model
 
