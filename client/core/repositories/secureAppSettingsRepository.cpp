@@ -307,15 +307,18 @@ QVariantMap SecureAppSettingsRepository::localAgentBackendProfile() const
     return value("Conf/localAgentBackendProfile").toMap();
 }
 
-bool SecureAppSettingsRepository::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl)
+bool SecureAppSettingsRepository::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
+                                                               const QString &runtimeGatewayBaseUrl)
 {
     AgentBackendProfileCatalog catalog;
-    catalog.local = { QStringLiteral("local"), authIssuer.trimmed(), routerBaseUrl.trimmed() };
+    catalog.local = { QStringLiteral("local"), authIssuer.trimmed(), routerBaseUrl.trimmed(),
+                      runtimeGatewayBaseUrl.trimmed() };
     const auto profile = resolveAgentBackendProfile(AgentBackendEnvironment::Local, catalog);
     if (!profile) return false;
     setValue("Conf/localAgentBackendProfile", QVariantMap {
         { QStringLiteral("authIssuer"), profile->authIssuer },
         { QStringLiteral("routerBaseUrl"), profile->routerBaseUrl },
+        { QStringLiteral("runtimeGatewayBaseUrl"), profile->runtimeGatewayBaseUrl },
     });
     return true;
 }

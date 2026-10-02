@@ -155,6 +155,7 @@ namespace
         config.backendProfile = QStringLiteral("development");
         config.authIssuer = issuer;
         config.routerBaseUrl = QStringLiteral("https://router-dev.example.com/v1");
+        config.runtimeGatewayBaseUrl = QStringLiteral("https://runtime-dev.example.com");
         const auto spec = makeAgentWorkloadDeploymentSpec(config);
         Q_ASSERT(spec);
         return *spec;
@@ -754,6 +755,8 @@ void SshSessionTest::agentWorkloadApplyRendererUsesExactBoundedPlaybook()
             QStringLiteral("--env 'AMGPT_AUTH_ISSUER=https://auth-dev.example.com/tenant;printf'")));
     QVERIFY(proxyScript->contains(QStringLiteral("--env 'AMGPT_ROUTER_BASE_URL=https://router-dev.example.com/v1'")));
     QVERIFY(proxyScript->contains(
+            QStringLiteral("--env 'AMGPT_RUNTIME_GATEWAY_BASE_URL=https://runtime-dev.example.com'")));
+    QVERIFY(proxyScript->contains(
             QStringLiteral("--label 'org.amnezia.amgpt.deployment.backend-profile=development'")));
     QVERIFY(!proxyScript->contains(QStringLiteral("amnezia-openclaw-state")));
 }
@@ -790,6 +793,8 @@ docker() {
         QCOMPARE(output.contains("<--cap-add>"), !spec.capabilitiesAdded.isEmpty());
         QCOMPARE(output.contains("<--network-alias>"), !spec.networkAlias.isEmpty());
         QVERIFY(output.contains("<--health-start-period>"));
+        QCOMPARE(output.contains("<AMGPT_RUNTIME_GATEWAY_BASE_URL=https://runtime-dev.example.com>"),
+                 spec.workload == QStringLiteral("amgpt-device-gateway"));
         QVERIFY(output.contains("AMNEZIA_AGENT_APPLY_APPLIED"));
     }
 }

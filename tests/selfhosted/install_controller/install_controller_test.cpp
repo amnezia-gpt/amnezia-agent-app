@@ -237,14 +237,21 @@ void InstallControllerTest::workloadEnvironmentPersistsIndependently()
         const auto config = controller.generateConfig(DockerContainer::AmgptAuthProxy, 8080, TransportProto::Tcp);
         QVERIFY(!makeAgentWorkloadDeploymentSpec(*config.getAmgptAuthProxyProtocolConfig()));
         QVERIFY(repository.localAgentBackendProfile().isEmpty());
-        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", ""));
-        QVERIFY(repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1"));
-        const auto pair = repository.localAgentBackendProfile();
-        QVERIFY(!repository.saveLocalAgentBackendProfile("http://auth.example", "https://router.example/v1"));
-        QCOMPARE(repository.localAgentBackendProfile(), pair);
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "", "https://runtime.example"));
+        QVERIFY(repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1",
+                                                       "https://runtime.example"));
+        const auto profile = repository.localAgentBackendProfile();
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1", ""));
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1",
+                                                        "https://runtime.example/v1"));
+        QVERIFY(!repository.saveLocalAgentBackendProfile("http://auth.example", "https://router.example/v1",
+                                                       "https://runtime.example"));
+        QCOMPARE(repository.localAgentBackendProfile(), profile);
         const auto configured = controller.generateConfig(DockerContainer::AmgptAuthProxy, 8080, TransportProto::Tcp);
         QCOMPARE(configured.getAmgptAuthProxyProtocolConfig()->authIssuer, QStringLiteral("https://auth.example"));
         QCOMPARE(configured.getAmgptAuthProxyProtocolConfig()->routerBaseUrl, QStringLiteral("https://router.example/v1"));
+        QCOMPARE(configured.getAmgptAuthProxyProtocolConfig()->runtimeGatewayBaseUrl,
+                 QStringLiteral("https://runtime.example"));
         QVERIFY(repository.backupAppConfig().contains("Conf/agentWorkloadEnvironment"));
     }
     {
@@ -252,6 +259,8 @@ void InstallControllerTest::workloadEnvironmentPersistsIndependently()
         SecureAppSettingsRepository repository(&settings);
         QCOMPARE(repository.agentWorkloadEnvironment(), QStringLiteral("local"));
         QCOMPARE(repository.localAgentBackendProfile().value("authIssuer").toString(), QStringLiteral("https://auth.example"));
+        QCOMPARE(repository.localAgentBackendProfile().value("runtimeGatewayBaseUrl").toString(),
+                 QStringLiteral("https://runtime.example"));
         repository.setAgentWorkloadEnvironment("dev");
         QCOMPARE(repository.agentWorkloadEnvironment(), QStringLiteral("dev"));
         settings.setValue("Conf/agentWorkloadEnvironment", "invalid-import");
@@ -273,6 +282,10 @@ void InstallControllerTest::localProfileAndUnavailableProduction()
     const auto *proxy = config.getAmgptAuthProxyProtocolConfig();
     QVERIFY(proxy);
     QVERIFY(!makeAgentWorkloadDeploymentSpec(*proxy));
+    ContainerConfig attempted;
+    QVERIFY(controller.installContainer(testCredentials(), DockerContainer::AmgptAuthProxy, 0, TransportProto::Tcp,
+                                        attempted) != ErrorCode::NoError);
+    QCOMPARE(recorder.state->connectionCount, 0);
     environment = AgentBackendEnvironment::Production;
     const auto unavailable = controller.generateConfig(DockerContainer::AmgptAuthProxy, 8080, TransportProto::Tcp);
     QVERIFY(!makeAgentWorkloadDeploymentSpec(*unavailable.getAmgptAuthProxyProtocolConfig()));
@@ -390,6 +403,7 @@ void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
     expectedConfig.backendProfile = QStringLiteral("development");
     expectedConfig.authIssuer = QStringLiteral("https://agpt-auth-dev.amzsvc.com");
     expectedConfig.routerBaseUrl = QStringLiteral("https://agpt-router-dev.amzsvc.com/v1");
+    expectedConfig.runtimeGatewayBaseUrl = QStringLiteral("https://agpt-runtime-dev.amzsvc.com");
     const auto expectedSpec = makeAgentWorkloadDeploymentSpec(expectedConfig);
     QVERIFY(expectedSpec);
     recorder.state->observationOutputs = {
@@ -409,6 +423,7 @@ void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
     QCOMPARE(proxy->backendProfile, QStringLiteral("development"));
     QCOMPARE(proxy->authIssuer, QStringLiteral("https://agpt-auth-dev.amzsvc.com"));
     QCOMPARE(proxy->routerBaseUrl, QStringLiteral("https://agpt-router-dev.amzsvc.com/v1"));
+    QCOMPARE(proxy->runtimeGatewayBaseUrl, QStringLiteral("https://agpt-runtime-dev.amzsvc.com"));
     QVERIFY(commandContaining(*recorder.state, QStringLiteral("base64 -d | sudo -n sh")) >= 0);
     QCOMPARE(commandContaining(*recorder.state, QStringLiteral("docker build")), -1);
 }

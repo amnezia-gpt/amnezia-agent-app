@@ -81,7 +81,7 @@ namespace amnezia
         std::optional<AgentBackendProfile> normalizedProfile(const AgentBackendProfile &profile,
                                                              AgentDeploymentValidationError *error)
         {
-            if (profile.authIssuer.isEmpty() || profile.routerBaseUrl.isEmpty()) {
+            if (profile.authIssuer.isEmpty() || profile.routerBaseUrl.isEmpty() || profile.runtimeGatewayBaseUrl.isEmpty()) {
                 setError(error, AgentDeploymentValidationError::MissingBackendProfile);
                 return std::nullopt;
             }
@@ -101,8 +101,22 @@ namespace amnezia
                 return std::nullopt;
             }
 
+            const auto runtime = normalizedHttpsUrl(profile.runtimeGatewayBaseUrl, false,
+                                                    AgentDeploymentValidationError::InvalidRuntimeGatewayBaseUrl, error);
+            if (!runtime) {
+                return std::nullopt;
+            }
+            QString runtimePath = QUrl(*runtime).path();
+            while (runtimePath.endsWith(QLatin1Char('/'))) {
+                runtimePath.chop(1);
+            }
+            if (runtimePath.endsWith(QStringLiteral("/v1"))) {
+                setError(error, AgentDeploymentValidationError::InvalidRuntimeGatewayBaseUrl);
+                return std::nullopt;
+            }
+
             setError(error, AgentDeploymentValidationError::None);
-            return AgentBackendProfile { profile.id, *issuer, *router };
+            return AgentBackendProfile { profile.id, *issuer, *router, *runtime };
         }
 
         QByteArray quotedJsonString(const QString &value)
@@ -203,7 +217,9 @@ namespace amnezia
                 object.insert(QStringLiteral("backend_profile"),
                               QJsonObject { { QStringLiteral("auth_issuer"), spec.backendProfile->authIssuer },
                                             { QStringLiteral("id"), spec.backendProfile->id },
-                                            { QStringLiteral("router_base_url"), spec.backendProfile->routerBaseUrl } });
+                                            { QStringLiteral("router_base_url"), spec.backendProfile->routerBaseUrl },
+                                            { QStringLiteral("runtime_gateway_base_url"),
+                                              spec.backendProfile->runtimeGatewayBaseUrl } });
             }
             return object;
         }
@@ -261,6 +277,7 @@ namespace amnezia
             variables.insert(QStringLiteral("$AGENT_BACKEND_PROFILE"), backendProfile->id);
             variables.insert(QStringLiteral("$AMGPT_AUTH_ISSUER"), backendProfile->authIssuer);
             variables.insert(QStringLiteral("$AMGPT_ROUTER_BASE_URL"), backendProfile->routerBaseUrl);
+            variables.insert(QStringLiteral("$AMGPT_RUNTIME_GATEWAY_BASE_URL"), backendProfile->runtimeGatewayBaseUrl);
         }
         return variables;
     }
@@ -281,7 +298,8 @@ namespace amnezia
     std::optional<AgentWorkloadDeploymentSpec> makeAgentWorkloadDeploymentSpec(const AmgptAuthProxyProtocolConfig &config,
                                                                                AgentDeploymentValidationError *error)
     {
-        const auto profile = normalizedProfile({ config.backendProfile, config.authIssuer, config.routerBaseUrl }, error);
+        const auto profile = normalizedProfile(
+                { config.backendProfile, config.authIssuer, config.routerBaseUrl, config.runtimeGatewayBaseUrl }, error);
         if (!profile) {
             return std::nullopt;
         }
@@ -299,6 +317,7 @@ namespace amnezia
             { QStringLiteral("AMGPT_DEVICE_GATEWAY_STATE_DIR"), QStringLiteral("/var/lib/amgpt-device-gateway") },
             { QStringLiteral("AMGPT_INGRESS_STATE_DIR"), QStringLiteral("/var/lib/amgpt-device-gateway/ingress") },
             { QStringLiteral("AMGPT_ROUTER_BASE_URL"), profile->routerBaseUrl },
+            { QStringLiteral("AMGPT_RUNTIME_GATEWAY_BASE_URL"), profile->runtimeGatewayBaseUrl },
         };
         spec.volumes = {
             { QStringLiteral("amnezia-amgpt-device-gateway-state"),
@@ -363,6 +382,7 @@ namespace amnezia
             config.backendProfile = spec.backendProfile->id;
             config.authIssuer = spec.backendProfile->authIssuer;
             config.routerBaseUrl = spec.backendProfile->routerBaseUrl;
+            config.runtimeGatewayBaseUrl = spec.backendProfile->runtimeGatewayBaseUrl;
             expected = makeAgentWorkloadDeploymentSpec(config, &error);
         } else if (spec.workload == QStringLiteral("openclaw-codex")) {
             if (spec.backendProfile) {

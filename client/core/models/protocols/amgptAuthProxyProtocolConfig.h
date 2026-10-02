@@ -13,6 +13,7 @@ namespace amnezia
         QString backendProfile;
         QString authIssuer;
         QString routerBaseUrl;
+        QString runtimeGatewayBaseUrl;
 
         QJsonObject toJson() const;
         static AmgptAuthProxyProtocolConfig fromJson(const QJsonObject &json);

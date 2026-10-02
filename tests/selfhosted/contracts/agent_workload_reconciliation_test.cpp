@@ -21,6 +21,7 @@ namespace
         config.routerBaseUrl = profile == QStringLiteral("development")
                 ? QStringLiteral("https://router-dev.example.com/v1")
                 : QStringLiteral("https://router.example.com/v1");
+        config.runtimeGatewayBaseUrl = QStringLiteral("https://runtime.example.com");
         const auto spec = makeAgentWorkloadDeploymentSpec(config);
         Q_ASSERT(spec);
         return *spec;
@@ -120,6 +121,7 @@ private slots:
     void dualStackPublicationMatchesWithoutHidingDrift();
     void equivalentStoppedContainerPlansStart();
     void managedDriftPlansRecreate();
+    void runtimeGatewayCoordinateDriftPlansRecreate();
     void runtimeDriftPlansRecreate();
     void unpublishedWorkloadRejectsPublishedPorts();
     void wrongOwnerPlansConflict();
@@ -204,6 +206,22 @@ void AgentWorkloadReconciliationTest::managedDriftPlansRecreate()
     const auto profilePlan = parseAndPlan(spec, envelope(spec, wrongProfile));
     QCOMPARE(profilePlan.action, AgentWorkloadReconciliationAction::Recreate);
     QCOMPARE(profilePlan.reason, AgentWorkloadReconciliationReason::DeclarationDrift);
+}
+
+void AgentWorkloadReconciliationTest::runtimeGatewayCoordinateDriftPlansRecreate()
+{
+    const auto installed = authProxySpec();
+    AmgptAuthProxyProtocolConfig config;
+    config.backendProfile = installed.backendProfile->id;
+    config.authIssuer = installed.backendProfile->authIssuer;
+    config.routerBaseUrl = installed.backendProfile->routerBaseUrl;
+    config.runtimeGatewayBaseUrl = QStringLiteral("https://another-runtime.example.com");
+    const auto desired = makeAgentWorkloadDeploymentSpec(config);
+    QVERIFY(desired);
+    const auto plan = parseAndPlan(*desired, envelope(*desired, observedContainer(installed)));
+    QCOMPARE(plan.action, AgentWorkloadReconciliationAction::Recreate);
+    QCOMPARE(plan.reason, AgentWorkloadReconciliationReason::DeclarationDrift);
+    QCOMPARE(installed.volumes.at(0).name, desired->volumes.at(0).name);
 }
 
 void AgentWorkloadReconciliationTest::runtimeDriftPlansRecreate()

@@ -29,6 +29,7 @@ namespace amnezia
         InvalidRouterBaseUrl,
         UnsupportedWorkload,
         InvalidDesiredState,
+        InvalidRuntimeGatewayBaseUrl,
     };
 
     struct AgentBackendProfile
@@ -36,6 +37,7 @@ namespace amnezia
         QString id;
         QString authIssuer;
         QString routerBaseUrl;
+        QString runtimeGatewayBaseUrl;
     };
 
     struct AgentBackendProfileCatalog

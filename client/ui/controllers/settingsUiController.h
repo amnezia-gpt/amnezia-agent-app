@@ -100,7 +100,8 @@ public slots:
     QString agentWorkloadEnvironment();
     void setAgentWorkloadEnvironment(const QString &environment);
     QVariantMap localAgentBackendProfile();
-    bool saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl);
+    bool saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
+                                      const QString &runtimeGatewayBaseUrl);
 
     bool isOnTv();
 
