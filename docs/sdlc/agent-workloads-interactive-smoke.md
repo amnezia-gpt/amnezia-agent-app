@@ -28,7 +28,46 @@ particular deployment. Do not add operator-specific smoke evidence here.
   run, use TUI. `codex exec` streams progress to stderr; inherit both stdout and
   stderr instead of capturing them until process exit.
 
-## SSH connection
+## One-shot SSH commands (default)
+
+Default to one command per SSH connection: stream stdout/stderr and disconnect
+when it completes. Do not require a persistent SSH shell or TUI unless requested.
+Substitute the operator's connection coordinates without storing them here.
+
+OpenClaw CLI verbose progress and final reply:
+
+```sh
+ssh -T -p <ssh-port> -i <private-key> <ssh-user>@<host> '
+docker exec -u openclaw -w /workspace amnezia-openclaw-codex \
+  openclaw agent --local --agent main --session-id ssh-openclaw-smoke \
+  --verbose on --timeout 180 \
+  --message "First explain your next step, then run pwd and printf OPENCLAW_OK using your shell tool, and explain the result."
+'
+```
+
+CLI verbose output is not the TUI or a token-by-token response stream. Keep
+stderr visible; do not pipe it into a final-result-only parser.
+
+Codex progress and tool output, using the managed profile:
+
+```sh
+ssh -T -p <ssh-port> -i <private-key> <ssh-user>@<host> \
+  'docker exec -i -u codex -w /codex-workspace -e HOME=/home/codex -e CODEX_HOME=/home/codex/.codex amnezia-openclaw-codex node' <<'JS'
+const fs = require("node:fs");
+const { spawnSync } = require("node:child_process");
+const version = spawnSync("codex", ["--version"], { encoding: "utf8" }).stdout.trim();
+const match = /^codex-cli (\S+)$/.exec(version);
+if (!match) throw new Error("Cannot determine installed Codex version");
+process.env.AMGPT_CODEX_USER_AGENT = "Codex/" + match[1];
+const overrides = JSON.parse(fs.readFileSync("/opt/workload/config/codex-app-server-overrides.json", "utf8"));
+const args = overrides.flatMap(value => ["-c", value]);
+args.push("exec", "--ignore-user-config", "--skip-git-repo-check", "--color", "never",
+  "First explain your next step, then run pwd and printf CODEX_OK using your shell tool, and explain the result.");
+process.exit(spawnSync("codex", args, { stdio: "inherit" }).status ?? 1);
+JS
+```
+
+## Persistent SSH connection (only when requested)
 
 Use the operator's own host, account, port and authentication method. Do not
 commit connection details, credentials or private key paths into this runbook.

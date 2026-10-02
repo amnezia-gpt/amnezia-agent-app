@@ -25,6 +25,8 @@ browser-mediated authorization proof of concept described in
    or documentation discovery unless those commands fail or runtime versions change.
    Never add operator-specific connection details or host-specific evidence to
    the public runbook; it contains only the generic workload contract.
+   Default to one-shot SSH commands that stream output and disconnect on
+   completion. Offer a persistent SSH shell or TUI only when explicitly requested.
 
 ## Branch and upstream model
 
