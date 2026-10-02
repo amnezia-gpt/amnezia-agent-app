@@ -87,6 +87,20 @@ process.exit(spawnSync("codex", args, { stdio: "inherit" }).status ?? 1);
 JS
 ```
 
+## Watch Device Gateway in a second terminal
+
+While an agent turn runs in the first terminal, follow Gateway diagnostics in
+another terminal with this one-line command:
+
+```sh
+ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker logs -f --tail 20 amnezia-amgpt-device-gateway'
+```
+
+This command deliberately stays connected to follow new events. Ctrl+C stops
+the log viewer. Gateway logs contain bounded diagnostic outcomes, not raw
+model prompts, responses or credentials. Watching them is not evidence of a
+successful inference turn; inspect the agent's own result as well.
+
 ## Persistent SSH connection (only when requested)
 
 Use the operator's own host, account, port and authentication method. Do not
