@@ -2,7 +2,7 @@
 
 ## Status
 
-Client implementation validated; live acceptance pending. Working on `codex/10-runtime-gateway-profile` from `amnezia`.
+Client implementation validated; operator accepted local sign-in and model requests. Feature branch: `codex/10-runtime-gateway-profile`, based on `amnezia`. Integration target follows the operator-confirmed branch decision.
 Issue: https://github.com/amnezia-gpt/amnezia-agent-app/issues/10
 
 ## Outcome
@@ -71,3 +71,26 @@ Device Gateway owns connectivity status read during manual acceptance.
   acceptance on both environments and visual interaction remain pending;
   the smoke document now records automatic check-in proof. No live success is
   inferred from deterministic tests or the existing installation.
+
+## Local acceptance and delivery update (2026-10-02)
+
+- The operator exercised the newly built client against the local backend on a
+  remote test host, reported successful sign-in and working model requests,
+  closed the application, and authorized local integration and issue closure.
+- Public harness contains reusable OpenClaw/Codex SSH commands, multi-turn and
+  tool-call scenarios, one-shot/one-line preferences, and Gateway log-viewing
+  limitations. It contains no operator host, IP, key path or secrets.
+- Login `ready` and healthy running containers were independently observed.
+  Runtime HTTPS check-in returned JSON 401 to an unauthenticated probe from
+  the test host. This proves reachability, not authenticated check-in.
+- Automatic check-in `active` was not independently confirmed; the deployed
+  Gateway did not accept the connectivity-status command used for that check.
+  Remote dev live acceptance remains unverified. Neither gap is represented
+  as a passing E2E result; the owner accepted integration of the client changes.
+- Production source has not changed since the successful desktop build and
+  deterministic gates above. Final review found no Critical/Important issue.
+- Final `ctest --test-dir deploy/build --output-on-failure --no-tests=error`:
+  all eight first-party suites passed (four contract and four unit suites).
+- Shell syntax of all runbook command blocks, publication-sensitive diff scan
+  and `git diff --check` passed. Build rerun is not applicable to the final
+  documentation-only changes; other-platform builds were not performed.
