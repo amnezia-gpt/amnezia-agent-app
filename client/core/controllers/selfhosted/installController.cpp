@@ -96,9 +96,10 @@ namespace
         return {
             {}, // Production coordinates have not been approved.
             { QStringLiteral("development"), QStringLiteral("https://agpt-auth-dev.amzsvc.com"),
-              QStringLiteral("https://agpt-router-dev.amzsvc.com/v1") },
+              QStringLiteral("https://agpt-router-dev.amzsvc.com/v1"),
+              QStringLiteral("https://agpt-runtime-dev.amzsvc.com") },
             { QStringLiteral("local"), local.value("authIssuer").toString(),
-              local.value("routerBaseUrl").toString() },
+              local.value("routerBaseUrl").toString(), local.value("runtimeGatewayBaseUrl").toString() },
         };
     }
 
@@ -1357,6 +1358,7 @@ ContainerConfig InstallController::generateConfig(DockerContainer container, int
                 proxy->backendProfile = profile->id;
                 proxy->authIssuer = profile->authIssuer;
                 proxy->routerBaseUrl = profile->routerBaseUrl;
+                proxy->runtimeGatewayBaseUrl = profile->runtimeGatewayBaseUrl;
             }
         }
     }

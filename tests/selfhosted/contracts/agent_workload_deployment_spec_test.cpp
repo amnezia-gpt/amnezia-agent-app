@@ -12,9 +12,9 @@ namespace
     {
         return {
             { QStringLiteral("production"), QStringLiteral("https://auth.example.com"),
-              QStringLiteral("https://router.example.com/v1") },
+              QStringLiteral("https://router.example.com/v1"), QStringLiteral("https://runtime.example.com") },
             { QStringLiteral("development"), QStringLiteral("https://auth-dev.example.com"),
-              QStringLiteral("https://router-dev.example.com/v1") },
+              QStringLiteral("https://router-dev.example.com/v1"), QStringLiteral("https://runtime-dev.example.com") },
         };
     }
 
@@ -25,6 +25,7 @@ namespace
         config.backendProfile = profile.id;
         config.authIssuer = profile.authIssuer;
         config.routerBaseUrl = profile.routerBaseUrl;
+        config.runtimeGatewayBaseUrl = profile.runtimeGatewayBaseUrl;
         return config;
     }
 } // namespace
@@ -34,6 +35,7 @@ class AgentWorkloadDeploymentSpecTest : public QObject
     Q_OBJECT
 
 private slots:
+    void runtimeGatewayProfileReachesDeployment();
     void resolvesBackendProfilesAtomically();
     void rejectsIncompleteBackendProfiles();
     void rejectsUnknownBackendEnvironment();
@@ -43,6 +45,9 @@ private slots:
     void createsSupervisedRuntimeDesiredState();
     void sharesOnlyTheAppSocketVolume();
     void ignoresPersistedPublishedPorts();
+    void rejectsMalformedRuntimeUrls_data();
+    void rejectsMalformedRuntimeUrls();
+    void runtimeGatewayChangeChangesHash();
     void rejectsMalformedProfileUrls_data();
     void rejectsMalformedProfileUrls();
     void normalizesEquivalentProfilesBeforeHashing();
@@ -50,6 +55,23 @@ private slots:
     void rendersOnlyWorkloadOwnedVariables();
     void validatesCompleteCanonicalSpec();
 };
+
+void AgentWorkloadDeploymentSpecTest::runtimeGatewayProfileReachesDeployment()
+{
+    const QJsonObject profile {
+        { QStringLiteral("backend_profile"), QStringLiteral("local") },
+        { QStringLiteral("auth_issuer"), QStringLiteral("https://auth-local.example.com") },
+        { QStringLiteral("router_base_url"), QStringLiteral("https://router-local.example.com/v1") },
+        { QStringLiteral("runtime_gateway_base_url"), QStringLiteral("https://runtime-local.example.com") },
+    };
+    const auto config = AmgptAuthProxyProtocolConfig::fromJson(profile);
+    QCOMPARE(config.toJson().value(QStringLiteral("runtime_gateway_base_url")),
+             profile.value(QStringLiteral("runtime_gateway_base_url")));
+    const auto spec = makeAgentWorkloadDeploymentSpec(config);
+    QVERIFY(spec);
+    QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_RUNTIME_GATEWAY_BASE_URL")),
+             QStringLiteral("https://runtime-local.example.com"));
+}
 
 void AgentWorkloadDeploymentSpecTest::resolvesBackendProfilesAtomically()
 {
@@ -66,6 +88,7 @@ void AgentWorkloadDeploymentSpecTest::resolvesBackendProfilesAtomically()
     QCOMPARE(development->id, QStringLiteral("development"));
     QCOMPARE(development->authIssuer, QStringLiteral("https://auth-dev.example.com"));
     QCOMPARE(development->routerBaseUrl, QStringLiteral("https://router-dev.example.com/v1"));
+    QCOMPARE(development->runtimeGatewayBaseUrl, QStringLiteral("https://runtime-dev.example.com"));
 }
 
 void AgentWorkloadDeploymentSpecTest::rejectsIncompleteBackendProfiles()
@@ -100,6 +123,7 @@ void AgentWorkloadDeploymentSpecTest::persistsResolvedBackendProfile()
     QCOMPARE(restored.backendProfile, original.backendProfile);
     QCOMPARE(restored.authIssuer, original.authIssuer);
     QCOMPARE(restored.routerBaseUrl, original.routerBaseUrl);
+    QCOMPARE(restored.runtimeGatewayBaseUrl, original.runtimeGatewayBaseUrl);
 }
 
 void AgentWorkloadDeploymentSpecTest::createsCompleteAuthProxyDesiredState()
@@ -132,7 +156,7 @@ void AgentWorkloadDeploymentSpecTest::createsCompleteAuthProxyDesiredState()
              QStringLiteral("/var/lib/amgpt-device-gateway/ingress"));
     QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_CODEX_APP_SOCKET")),
              QStringLiteral("/run/amgpt-codex/app-server.sock"));
-    QCOMPARE(spec->environment.size(), 5);
+    QCOMPARE(spec->environment.size(), 6);
     QCOMPARE(spec->volumes.size(), 2);
     QCOMPARE(spec->volumes.at(0).name, QStringLiteral("amnezia-amgpt-device-gateway-state"));
     QCOMPARE(spec->volumes.at(0).target, QStringLiteral("/var/lib/amgpt-device-gateway"));
@@ -248,6 +272,51 @@ void AgentWorkloadDeploymentSpecTest::ignoresPersistedPublishedPorts()
              makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development))->specHash());
 }
 
+void AgentWorkloadDeploymentSpecTest::rejectsMalformedRuntimeUrls_data()
+{
+    QTest::addColumn<QString>("url");
+    QTest::addColumn<AgentDeploymentValidationError>("expectedError");
+    QTest::newRow("missing") << QString() << AgentDeploymentValidationError::MissingBackendProfile;
+    for (const auto &row : QList<QPair<const char *, QString>> {
+             { "http", QStringLiteral("http://runtime.example.com") },
+             { "relative", QStringLiteral("runtime.example.com") },
+             { "userinfo", QStringLiteral("https://user@runtime.example.com") },
+             { "query", QStringLiteral("https://runtime.example.com?tenant=dev") },
+             { "fragment", QStringLiteral("https://runtime.example.com#fragment") },
+             { "v1", QStringLiteral("https://runtime.example.com/v1") },
+             { "v1-slash", QStringLiteral("https://runtime.example.com/v1/") },
+             { "v1-slashes", QStringLiteral("https://runtime.example.com/v1//") },
+             { "prefixed-v1", QStringLiteral("https://runtime.example.com/gateway/v1") },
+             { "encoded-v1", QStringLiteral("https://runtime.example.com/%761") },
+             { "whitespace", QStringLiteral(" https://runtime.example.com") },
+         }) {
+        QTest::newRow(row.first) << row.second << AgentDeploymentValidationError::InvalidRuntimeGatewayBaseUrl;
+    }
+}
+
+void AgentWorkloadDeploymentSpecTest::rejectsMalformedRuntimeUrls()
+{
+    QFETCH(QString, url);
+    QFETCH(AgentDeploymentValidationError, expectedError);
+    auto profile = completeCatalog().development;
+    profile.runtimeGatewayBaseUrl = url;
+    AgentDeploymentValidationError error = AgentDeploymentValidationError::None;
+    QVERIFY(!makeAgentWorkloadDeploymentSpec(authProxyConfig(profile), &error));
+    QCOMPARE(error, expectedError);
+}
+
+void AgentWorkloadDeploymentSpecTest::runtimeGatewayChangeChangesHash()
+{
+    auto profile = completeCatalog().development;
+    const auto first = makeAgentWorkloadDeploymentSpec(authProxyConfig(profile));
+    profile.runtimeGatewayBaseUrl = QStringLiteral("https://another-runtime.example.com");
+    const auto second = makeAgentWorkloadDeploymentSpec(authProxyConfig(profile));
+    QVERIFY(first);
+    QVERIFY(second);
+    QVERIFY(first->specHash() != second->specHash());
+    QCOMPARE(validateAgentWorkloadDeploymentSpec(*second), AgentDeploymentValidationError::None);
+}
+
 void AgentWorkloadDeploymentSpecTest::rejectsMalformedProfileUrls_data()
 {
     QTest::addColumn<QString>("profileId");
@@ -290,7 +359,8 @@ void AgentWorkloadDeploymentSpecTest::rejectsMalformedProfileUrls()
     QFETCH(AgentDeploymentValidationError, expectedError);
 
     AgentDeploymentValidationError error = AgentDeploymentValidationError::None;
-    const auto spec = makeAgentWorkloadDeploymentSpec(authProxyConfig({ profileId, authIssuer, routerBaseUrl }), &error);
+    const auto spec = makeAgentWorkloadDeploymentSpec(
+            authProxyConfig({ profileId, authIssuer, routerBaseUrl, QStringLiteral("https://runtime.example.com") }), &error);
 
     QVERIFY(!spec);
     QCOMPARE(error, expectedError);
@@ -300,15 +370,18 @@ void AgentWorkloadDeploymentSpecTest::normalizesEquivalentProfilesBeforeHashing(
 {
     const auto first = makeAgentWorkloadDeploymentSpec(
             authProxyConfig({ QStringLiteral("development"), QStringLiteral("HTTPS://AUTH.EXAMPLE.COM/"),
-                              QStringLiteral("https://ROUTER.EXAMPLE.COM/v1/") }));
+                              QStringLiteral("https://ROUTER.EXAMPLE.COM/v1/"),
+                              QStringLiteral("HTTPS://RUNTIME.EXAMPLE.COM/") }));
     const auto second = makeAgentWorkloadDeploymentSpec(
             authProxyConfig({ QStringLiteral("development"), QStringLiteral("https://auth.example.com"),
-                              QStringLiteral("https://router.example.com/v1") }));
+                              QStringLiteral("https://router.example.com/v1"),
+                              QStringLiteral("https://runtime.example.com") }));
 
     QVERIFY(first);
     QVERIFY(second);
     QCOMPARE(first->backendProfile->authIssuer, QStringLiteral("https://auth.example.com"));
     QCOMPARE(first->backendProfile->routerBaseUrl, QStringLiteral("https://router.example.com/v1"));
+    QCOMPARE(first->backendProfile->runtimeGatewayBaseUrl, QStringLiteral("https://runtime.example.com"));
     QCOMPARE(first->specHash(), second->specHash());
 }
 
@@ -340,6 +413,7 @@ void AgentWorkloadDeploymentSpecTest::rendersOnlyWorkloadOwnedVariables()
     QVERIFY(!openClawVariables.contains(QStringLiteral("$OPENCLAW_CODEX_PORT")));
     QVERIFY(!openClawVariables.contains(QStringLiteral("$AMGPT_AUTH_ISSUER")));
     QVERIFY(!openClawVariables.contains(QStringLiteral("$AMGPT_ROUTER_BASE_URL")));
+    QVERIFY(!openClawVariables.contains(QStringLiteral("$AMGPT_RUNTIME_GATEWAY_BASE_URL")));
     QVERIFY(!openClawVariables.contains(QStringLiteral("$AGENT_BACKEND_PROFILE")));
 }
 

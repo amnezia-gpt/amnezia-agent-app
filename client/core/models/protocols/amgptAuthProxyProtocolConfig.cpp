@@ -20,6 +20,9 @@ namespace amnezia
         if (!routerBaseUrl.isEmpty()) {
             object[configKey::routerBaseUrl] = routerBaseUrl;
         }
+        if (!runtimeGatewayBaseUrl.isEmpty()) {
+            object[configKey::runtimeGatewayBaseUrl] = runtimeGatewayBaseUrl;
+        }
         return object;
     }
 
@@ -30,6 +33,7 @@ namespace amnezia
         config.backendProfile = json.value(configKey::backendProfile).toString();
         config.authIssuer = json.value(configKey::authIssuer).toString();
         config.routerBaseUrl = json.value(configKey::routerBaseUrl).toString();
+        config.runtimeGatewayBaseUrl = json.value(configKey::runtimeGatewayBaseUrl).toString();
         return config;
     }
 

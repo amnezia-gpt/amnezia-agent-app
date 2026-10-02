@@ -16,6 +16,7 @@ namespace amnezia
         constexpr QLatin1String backendProfile("backend_profile");
         constexpr QLatin1String authIssuer("auth_issuer");
         constexpr QLatin1String routerBaseUrl("router_base_url");
+        constexpr QLatin1String runtimeGatewayBaseUrl("runtime_gateway_base_url");
 
         constexpr QLatin1String dns1("dns1");
         constexpr QLatin1String dns2("dns2");

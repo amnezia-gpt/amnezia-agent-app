@@ -29,7 +29,7 @@ port, and trailing health options. Syntax-only `sh -n` cannot detect this gap.
 - Outbound DNS/HTTPS access for OS packages, Docker Hub and the selected provider.
 - Device Gateway from the temporary compatibility reference
   `docker.io/amneziavpn/agent-workload-amgpt-auth-proxy:dev`, and the
-  OpenClaw/Codex digest pinned in the client. The repository name is legacy;
+  OpenClaw/Codex `dev` reference configured in the client. The repository name is legacy;
   the deployed workload identity remains Device Gateway.
 - A built macOS desktop client and an SSH credential entered through its UI.
 - For AMGPT only: deployed dev Auth device authorization, browser verification,
@@ -40,18 +40,20 @@ Before installing the Device Gateway, select **Agent workload environment** in t
 **Dev console**: `local` for the local backend exposed through its public tunnel,
 or `dev` for the shared development backend (the default). This setting is
 independent of **Dev gateway environment**. Production is not selectable.
-For `local`, enter the public HTTPS Auth issuer and Router base URL (`/v1`) in
-the Dev console and choose **Save local backend**. There are no local endpoint
-defaults. Both URLs are validated and saved together under
+For `local`, enter the public HTTPS Auth issuer, Router base URL (`/v1`) and
+Runtime Gateway base URL (without `/v1`) in the Dev console and choose
+**Save local backend**. There are no local endpoint
+defaults. All three URLs are validated and saved together under
 `Conf/localAgentBackendProfile`; an incomplete/invalid profile blocks install
 before SSH. Personal tunnel addresses must never be added to source or tests.
 These settings are included in application backups, and resolved addresses are
 stored in the remote deployment configuration. Treat exported backups and
 deployment diagnostics as private; do not attach them unredacted to issues.
 The choice is persisted under `Conf/agentWorkloadEnvironment`. The resolved
-Auth/Router pair is saved atomically in each new Gateway deployment (`local` or
+Auth/Router/Runtime Gateway profile is saved atomically in each new Gateway
+deployment (`local` or
 `development` profile). Inspection, login, lifecycle and repair retain that saved
-pair even after the global selection changes. To switch a deployed backend,
+profile even after the global selection changes. To switch a deployed backend,
 explicitly reinstall it using the new selection; changing the setting alone does
 not contact the host. Missing/invalid saved profiles fail closed.
 If Dev console is hidden, open the About page and click the software version
@@ -110,7 +112,7 @@ successful build is not evidence for unbuilt source changes.
 
 1. Add the disposable host in Amnezia and install **AMGPT Device Gateway**.
    The wizard offers no port. Confirm the client applies the selected
-   Auth/Router tuple together, the container becomes healthy and
+   Auth/Router/Runtime Gateway tuple together, the container becomes healthy and
    `docker port amnezia-amgpt-device-gateway` prints nothing.
 2. On the Gateway page, start **Sign in with Amnezia GPT**. Expect a clickable
    HTTPS authorization presentation and plain user code. Open the browser,
@@ -124,6 +126,19 @@ successful build is not evidence for unbuilt source changes.
    `docker exec amnezia-openclaw-codex node /opt/workload/bin/runtimectl.mjs status`
    reporting every service ready. Its page must not show ChatGPT or AMGPT login
    controls.
+   After both services are healthy and login is ready, read:
+
+   ```sh
+   docker exec amnezia-amgpt-device-gateway workloadctl connectivity status --json
+   ```
+
+   Expect `state=active` and `last_outcome=ok`. The gateway requests the
+   connectivity scope at login and checks in automatically; the desktop does
+   not start or poll check-in. Repeat this proof on both local and shared dev.
+   Login `ready` alone is not check-in evidence. If connectivity is in backoff,
+   record its bounded outcome and restore the selected Runtime Gateway/Auth
+   dependency before claiming success. No broker/WebUI session is required.
+
 5. If the backend prerequisite is available, repeat **Sign in with Amnezia GPT**,
    close the desktop after receiving the presentation, approve, reopen and
    refresh AMGPT status. Expect ready. Repeat the stop/start persistence check.

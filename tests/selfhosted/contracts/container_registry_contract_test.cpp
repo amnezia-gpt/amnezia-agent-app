@@ -828,6 +828,7 @@ void ContainerRegistryContractTest::agentWorkloadConfigsRoundTripIndependently()
         QStringLiteral("development"),
         QStringLiteral("https://auth-dev.example.com"),
         QStringLiteral("https://router-dev.example.com/v1"),
+        QStringLiteral("https://runtime-dev.example.com"),
     };
 
     const QJsonObject proxyJson = proxy.toJson();
@@ -846,6 +847,7 @@ void ContainerRegistryContractTest::agentWorkloadConfigsRoundTripIndependently()
     QCOMPARE(restoredProxyConfig->backendProfile, QStringLiteral("development"));
     QCOMPARE(restoredProxyConfig->authIssuer, QStringLiteral("https://auth-dev.example.com"));
     QCOMPARE(restoredProxyConfig->routerBaseUrl, QStringLiteral("https://router-dev.example.com/v1"));
+    QCOMPARE(restoredProxyConfig->runtimeGatewayBaseUrl, QStringLiteral("https://runtime-dev.example.com"));
 
     ContainerConfig workload;
     workload.container = DockerContainer::OpenClawCodex;
@@ -883,6 +885,7 @@ void ContainerRegistryContractTest::agentWorkloadDesiredStateFlowsThroughScriptR
         QStringLiteral("development"),
         QStringLiteral("https://auth-dev.example.com"),
         QStringLiteral("https://router-dev.example.com/v1"),
+        QStringLiteral("https://runtime-dev.example.com"),
     };
 
     const ScriptVars proxyVars = genProtocolVarsForContainer(DockerContainer::AmgptAuthProxy, proxy);
@@ -890,6 +893,7 @@ void ContainerRegistryContractTest::agentWorkloadDesiredStateFlowsThroughScriptR
     assertVariable(proxyVars, QStringLiteral("$AMGPT_AUTH_ISSUER"), QStringLiteral("https://auth-dev.example.com"));
     assertVariable(proxyVars, QStringLiteral("$AMGPT_ROUTER_BASE_URL"),
                    QStringLiteral("https://router-dev.example.com/v1"));
+    assertVariable(proxyVars, QStringLiteral("$AMGPT_RUNTIME_GATEWAY_BASE_URL"), QStringLiteral("https://runtime-dev.example.com"));
     assertVariable(proxyVars, QStringLiteral("$AGENT_BACKEND_PROFILE"), QStringLiteral("development"));
     assertVariable(proxyVars, QStringLiteral("$AGENT_WORKLOAD_ID"), QStringLiteral("amgpt-device-gateway"));
     QCOMPARE(variable(proxyVars, QStringLiteral("$AGENT_DEPLOYMENT_SPEC_HASH")).size(), 64);
@@ -903,6 +907,7 @@ void ContainerRegistryContractTest::agentWorkloadDesiredStateFlowsThroughScriptR
     assertVariable(openClawVars, QStringLiteral("$AGENT_WORKLOAD_ID"), QStringLiteral("openclaw-codex"));
     QVERIFY(!mapKeys(openClawVars).contains(QStringLiteral("$AMGPT_AUTH_ISSUER")));
     QVERIFY(!mapKeys(openClawVars).contains(QStringLiteral("$AMGPT_ROUTER_BASE_URL")));
+    QVERIFY(!mapKeys(openClawVars).contains(QStringLiteral("$AMGPT_RUNTIME_GATEWAY_BASE_URL")));
     QVERIFY(!mapKeys(openClawVars).contains(QStringLiteral("$AGENT_BACKEND_PROFILE")));
 }
 

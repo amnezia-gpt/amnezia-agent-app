@@ -342,9 +342,10 @@ QVariantMap SettingsUiController::localAgentBackendProfile()
     return m_settingsController->localAgentBackendProfile();
 }
 
-bool SettingsUiController::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl)
+bool SettingsUiController::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
+                                                        const QString &runtimeGatewayBaseUrl)
 {
-    if (!m_settingsController->saveLocalAgentBackendProfile(authIssuer, routerBaseUrl)) return false;
+    if (!m_settingsController->saveLocalAgentBackendProfile(authIssuer, routerBaseUrl, runtimeGatewayBaseUrl)) return false;
     emit localAgentBackendProfileChanged();
     return true;
 }
