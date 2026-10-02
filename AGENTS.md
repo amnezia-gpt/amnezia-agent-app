@@ -19,6 +19,12 @@ browser-mediated authorization proof of concept described in
    characterization tests before refactoring untested legacy behavior.
 5. Invoke every repo-local skill whose description matches the work.
 6. Preserve unrelated user changes and never overwrite a dirty worktree.
+7. For SSH test prompts or live OpenClaw/Codex output, read
+   [`docs/sdlc/agent-workloads-interactive-smoke.md`](docs/sdlc/agent-workloads-interactive-smoke.md)
+   first and give the ready commands immediately. Do not repeat CLI, container,
+   or documentation discovery unless those commands fail or runtime versions change.
+   Never add operator-specific connection details or host-specific evidence to
+   the public runbook; it contains only the generic workload contract.
 
 ## Branch and upstream model
 
