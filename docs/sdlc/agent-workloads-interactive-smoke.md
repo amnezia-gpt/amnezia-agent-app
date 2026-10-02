@@ -101,6 +101,14 @@ the log viewer. Gateway logs contain bounded diagnostic outcomes, not raw
 model prompts, responses or credentials. Watching them is not evidence of a
 successful inference turn; inspect the agent's own result as well.
 
+The current provider proxy (`handleProxy`, `/v1/*`) does not emit per-request
+access logs. A successful OpenClaw/Codex turn may add no Gateway log line.
+Calling it from outside the host does not change that. `openclaw --log-level`
+controls OpenClaw, not Gateway logging. Check-in logs are emitted on state
+changes, not for every successful heartbeat. Do not recommend this log viewer
+as a way to observe each model request; that requires Gateway instrumentation
+for bounded method/route/status/duration metadata without payloads or credentials.
+
 ## Persistent SSH connection (only when requested)
 
 Use the operator's own host, account, port and authentication method. Do not
