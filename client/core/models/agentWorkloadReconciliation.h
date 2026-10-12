@@ -37,6 +37,7 @@ namespace amnezia
         QString type;
         QString name;
         QString destination;
+        bool readOnly = false;
     };
 
     struct ObservedAgentWorkloadPort
@@ -78,6 +79,7 @@ namespace amnezia
         QStringList networks;
         QList<ObservedAgentWorkloadPort> ports;
         QMap<QString, QString> deploymentLabels;
+        QMap<QString, QString> trustEnvironment;
         bool hostPortInUse = false;
         QList<ObservedAgentWorkloadPortOwner> portOwners;
     };
@@ -114,6 +116,7 @@ namespace amnezia
         ObservationUnsupportedSchema,
         ObservationTargetMismatch,
         ObservationInvalid,
+        BackendEnvironmentMismatch,
     };
 
     struct AgentWorkloadReconciliationPlan

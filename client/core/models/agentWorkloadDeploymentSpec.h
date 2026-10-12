@@ -30,6 +30,9 @@ namespace amnezia
         UnsupportedWorkload,
         InvalidDesiredState,
         InvalidRuntimeGatewayBaseUrl,
+        InvalidTrustBundle,
+        InvalidTrustPin,
+        BackendEnvironmentChanged,
     };
 
     struct AgentBackendProfile
@@ -38,6 +41,8 @@ namespace amnezia
         QString authIssuer;
         QString routerBaseUrl;
         QString runtimeGatewayBaseUrl;
+        QString ingressTrustBundle; // Exact UTF-8 export bytes, including whitespace.
+        QString ingressTrustSha256;
     };
 
     struct AgentBackendProfileCatalog
@@ -51,6 +56,7 @@ namespace amnezia
     {
         QString name;
         QString target;
+        bool readOnly = false;
     };
 
     struct AgentWorkloadHealthCheck

@@ -9,6 +9,7 @@
 
 #include "core/models/agentWorkloadApply.h"
 #include "core/models/agentWorkloadLogin.h"
+#include "core/models/agentWorkloadLinks.h"
 #include "core/models/agentWorkloadReconciliation.h"
 #include "core/utils/commonStructs.h"
 #include "core/utils/containerEnum.h"
@@ -81,6 +82,9 @@ public:
                                                               const AgentWorkloadDeploymentSpec &desired,
                                                               AgentWorkloadLifecycleAction action);
 
+    // Removal needs only a canonical workload identity, including for legacy profiles without trust.
+    AgentWorkloadLifecycleResult removeAgentWorkload(const ServerCredentials &credentials, DockerContainer container);
+
     AgentWorkloadLoginStartResult startAgentWorkloadLogin(const ServerCredentials &credentials,
                                                           const AgentWorkloadDeploymentSpec &desired,
                                                           AgentWorkloadLoginMode mode);
@@ -88,6 +92,8 @@ public:
     AgentWorkloadLoginStatusResult queryAgentWorkloadLoginStatus(const ServerCredentials &credentials,
                                                                  const AgentWorkloadDeploymentSpec &desired,
                                                                  AgentWorkloadLoginMode mode);
+
+    AgentWorkloadLinksResult queryAgentWorkloadLinks(const ServerCredentials &credentials);
 
     ErrorCode getDecryptedPrivateKey(const ServerCredentials &credentials, QString &decryptedPrivateKey,
                                      const std::function<QString()> &callback);

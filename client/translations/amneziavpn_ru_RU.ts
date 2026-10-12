@@ -5589,6 +5589,22 @@ Create one from the current settings.</source>
 <context>
     <name>QObject</name>
     <message>
+        <source>Codex</source>
+        <translation>Codex</translation>
+    </message>
+    <message>
+        <source>Self-hosted Codex App Server.</source>
+        <translation>Сервер Codex на вашем хосте.</translation>
+    </message>
+    <message>
+        <source>Deploys the AMGPT Device Gateway used for device authorization and compatible agent workloads. It is installed and managed independently from the Codex workload.</source>
+        <translation>Устанавливает AMGPT Device Gateway для авторизации устройства и совместимых приложений. Устанавливается и управляется отдельно от Codex.</translation>
+    </message>
+    <message>
+        <source>Deploys a self-hosted Codex App Server. Authorization is configured separately after installation.</source>
+        <translation>Устанавливает сервер Codex на вашем хосте. Авторизация настраивается отдельно после установки.</translation>
+    </message>
+    <message>
         <location filename="../core/utils/errorStrings.cpp" line="11"/>
         <source>No error</source>
         <translation>Нет ошибки</translation>
@@ -6732,6 +6748,13 @@ Remove the server from the app to continue.</source>
         <location filename="../ui/qml/main2.qml" line="401"/>
         <source>Cannot remove server during active connection</source>
         <translation>Невозможно удалить сервер во время активного соединения</translation>
+    </message>
+</context>
+<context>
+    <name>PageServiceAgentWorkloadSettings</name>
+    <message>
+        <source>Open WebUI</source>
+        <translation>Открыть WebUI</translation>
     </message>
 </context>
 </TS>

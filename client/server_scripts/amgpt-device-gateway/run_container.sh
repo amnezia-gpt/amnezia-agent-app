@@ -43,6 +43,31 @@ wait_healthy() {
     return 75
 }
 
+restart_owned_runtime() {
+    # Gateway publishes the digest before becoming healthy. Codex reads it only at startup.
+    # Use the inspected ID, never restart a same-name container with foreign labels.
+    runtime_ids=$(docker container ls -aq --no-trunc --filter 'name=^/amnezia-openclaw-codex$')
+    [ -n "$runtime_ids" ] || return 0
+    runtime_count=$(printf '%s\n' "$runtime_ids" | awk 'NF { count++ } END { print count + 0 }')
+    [ "$runtime_count" -eq 1 ] || return 70
+    runtime_owner=$(docker container inspect --format '{{ index .Config.Labels "org.amnezia.amgpt.deployment.managed-by" }}' "$runtime_ids")
+    runtime_workload=$(docker container inspect --format '{{ index .Config.Labels "org.amnezia.amgpt.deployment.workload" }}' "$runtime_ids")
+    if [ "$runtime_owner" != "$managed_by" ] || [ "$runtime_workload" != openclaw-codex ]; then
+        return 0
+    fi
+    docker container restart --time 20 "$runtime_ids" >/dev/null 2>&1
+    runtime_attempts=@@RUNTIME_HEALTH_ATTEMPTS@@
+    while [ "$runtime_attempts" -gt 0 ]; do
+        runtime_health=$(docker container inspect --format '{{if .State.Running}}{{with .State.Health}}{{.Status}}{{else}}none{{end}}{{else}}stopped{{end}}' "$runtime_ids")
+        [ "$runtime_health" = healthy ] && return 0
+        [ "$runtime_health" != stopped ] && [ "$runtime_health" != none ] || return 74
+        runtime_attempts=$((runtime_attempts - 1))
+        sleep 1
+    done
+    printf 'AMNEZIA_AGENT_APPLY_HEALTH_TIMEOUT\n'
+    return 75
+}
+
 if [ "$action" = start ]; then
     guard_owner
     docker container start "$container_name" >/dev/null 2>&1
@@ -81,6 +106,7 @@ else
         --health-start-period @@HEALTH_START_PERIOD@@ \
         "$image" >/dev/null 2>&1
     wait_healthy
+    restart_owned_runtime
 fi
 
 trap - EXIT HUP INT TERM

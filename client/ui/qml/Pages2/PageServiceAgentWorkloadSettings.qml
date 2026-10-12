@@ -29,6 +29,7 @@ PageType {
     property string loginMessage: ""
     property string verificationUrl: ""
     property string userCode: ""
+    property bool webInterfaceAvailable: false
     property bool operationInProgress: false
     property var savedConfig: ContainersModel.getContainerConfig(ServersUiController.processedContainerIndex)
     property bool isDeviceGateway: savedConfig.container === "amnezia-amgpt-device-gateway"
@@ -45,11 +46,15 @@ PageType {
     }
 
     function refreshState() {
+        if (operationInProgress)
+            return
         InstallController.refreshAgentWorkloadState(ServersUiController.processedServerId,
                                                      ServersUiController.processedContainerIndex)
     }
 
     function startLogin(mode) {
+        if (operationInProgress)
+            return
         selectedLoginMode = mode
         loginPrecondition = loginPreconditionNone
         loginMessage = ""
@@ -59,6 +64,8 @@ PageType {
     }
 
     function refreshLoginStatus(mode) {
+        if (operationInProgress)
+            return
         if (selectedLoginMode !== mode) {
             verificationUrl = ""
             userCode = ""
@@ -68,8 +75,26 @@ PageType {
         InstallController.refreshAgentWorkloadLoginStatus(ServersUiController.processedServerId, mode)
     }
 
+    function refreshLinks() {
+        if (!isDeviceGateway || operationInProgress)
+            return
+        webInterfaceAvailable = false
+        InstallController.refreshAgentWorkloadLinks(ServersUiController.processedServerId)
+    }
+
     Connections {
         target: InstallController
+
+        function onAgentWorkloadLinksRefreshed(serverId, available) {
+            if (root.isDeviceGateway && serverId === ServersUiController.processedServerId) {
+                root.webInterfaceAvailable = available
+            }
+        }
+
+        function onAgentWorkloadWebInterfaceOpened(serverId, opened, message) {
+            if (serverId === ServersUiController.processedServerId && !opened)
+                PageController.showNotificationMessage(message)
+        }
 
         function onServerIsBusy(busy) {
             root.operationInProgress = busy
@@ -78,6 +103,7 @@ PageType {
         function onAgentWorkloadStateRefreshed(action, reason, message) {
             root.currentAction = action
             root.stateMessage = message
+            root.refreshLinks()
         }
 
         function onAgentWorkloadReconcileFinished(action, planReason, status, applyReason, transportError, message) {
@@ -101,7 +127,7 @@ PageType {
         function onAgentWorkloadLoginStatusRefreshed(mode, state, authenticated, operationError, message) {
             root.selectedLoginMode = mode
             root.loginMessage = message
-            if (state !== root.loginStatePending) {
+            if (operationError === 0 && state !== root.loginStatePending) {
                 root.verificationUrl = ""
                 root.userCode = ""
             }
@@ -110,7 +136,6 @@ PageType {
 
     BackButtonType {
         id: backButton
-        enabled: !root.operationInProgress
         anchors.top: parent.top
         anchors.left: parent.left
         anchors.right: parent.right
@@ -118,7 +143,6 @@ PageType {
     }
 
     ListViewType {
-        enabled: !root.operationInProgress
         anchors.top: backButton.bottom
         anchors.bottom: parent.bottom
         anchors.left: parent.left
@@ -164,6 +188,7 @@ PageType {
             LabelWithButtonType {
                 Layout.fillWidth: true
                 text: qsTr("Refresh state")
+                enabled: !root.operationInProgress
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"
                 clickedFunction: root.refreshState
             }
@@ -176,6 +201,7 @@ PageType {
                          || root.currentAction === root.actionStart
                          || root.currentAction === root.actionRecreate
                 text: root.actionText()
+                enabled: !root.operationInProgress
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"
                 clickedFunction: function() {
                     InstallController.reconcileAgentWorkload(ServersUiController.processedServerId,
@@ -193,6 +219,7 @@ PageType {
                 Layout.fillWidth: true
                 visible: root.currentAction === root.actionNoOp
                 text: qsTr("Stop workload")
+                enabled: !root.operationInProgress
                 clickedFunction: function() {
                     InstallController.stopAgentWorkload(ServersUiController.processedServerId,
                                                         ServersUiController.processedContainerIndex)
@@ -214,6 +241,7 @@ PageType {
                 Layout.fillWidth: true
                 visible: root.isDeviceGateway && root.currentAction === root.actionNoOp
                 text: qsTr("Sign in with Amnezia GPT")
+                enabled: !root.operationInProgress
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"
                 clickedFunction: function() { root.startLogin(root.loginAmgpt) }
             }
@@ -254,6 +282,7 @@ PageType {
                 Layout.fillWidth: true
                 visible: root.isDeviceGateway && root.currentAction === root.actionNoOp
                 text: qsTr("Refresh Amnezia GPT sign-in status")
+                enabled: !root.operationInProgress
                 rightImageSource: "qrc:/images/controls/chevron-right.svg"
                 clickedFunction: function() { root.refreshLoginStatus(root.loginAmgpt) }
             }
@@ -264,7 +293,21 @@ PageType {
 
             LabelWithButtonType {
                 Layout.fillWidth: true
+                visible: root.isDeviceGateway && root.webInterfaceAvailable
+                text: qsTr("Open WebUI")
+                enabled: !root.operationInProgress
+                rightImageSource: "qrc:/images/controls/chevron-right.svg"
+                clickedFunction: function() {
+                    InstallController.openAgentWorkloadWebInterface(ServersUiController.processedServerId)
+                }
+            }
+
+            DividerType { visible: root.isDeviceGateway && root.webInterfaceAvailable }
+
+            LabelWithButtonType {
+                Layout.fillWidth: true
                 text: qsTr("Remove workload")
+                enabled: !root.operationInProgress
                 textColor: AmneziaStyle.color.vibrantRed
                 clickedFunction: function() {
                     var yes = function() {
@@ -274,7 +317,7 @@ PageType {
                     }
                     showQuestionDrawer(
                         qsTr("Remove %1 from server?").arg(ContainersModel.getProcessedContainerName()),
-                        qsTr("The workload container will be removed. Its persistent data and the other agent workload are preserved."),
+                        qsTr("The workload and all its private persistent data, including saved logins and identity, will be deleted. The other agent workload is preserved."),
                         qsTr("Continue"), qsTr("Cancel"), yes, function() {})
                 }
             }

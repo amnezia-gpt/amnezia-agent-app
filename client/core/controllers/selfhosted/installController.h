@@ -13,6 +13,7 @@
 
 #include "core/installers/mtProxyInstaller.h"
 #include "core/models/agentWorkloadApply.h"
+#include "core/models/agentWorkloadLinks.h"
 #include "core/models/agentWorkloadDeploymentSpec.h"
 #include "core/models/agentWorkloadLogin.h"
 #include "core/models/agentWorkloadReconciliation.h"
@@ -52,11 +53,13 @@ class InstallController : public QObject
 public:
     using SshSessionFactory = std::function<std::unique_ptr<SshSession>()>;
     using AgentBackendEnvironmentResolver = std::function<AgentBackendEnvironment()>;
+    using AgentBackendProfileCatalogResolver = std::function<AgentBackendProfileCatalog()>;
 
     explicit InstallController(SecureServersRepository *serversRepository,
                                SecureAppSettingsRepository *appSettingsRepository, QObject *parent = nullptr,
                                SshSessionFactory sshSessionFactory = {},
-                               AgentBackendEnvironmentResolver agentBackendEnvironmentResolver = {});
+                               AgentBackendEnvironmentResolver agentBackendEnvironmentResolver = {},
+                               AgentBackendProfileCatalogResolver agentBackendProfileCatalogResolver = {});
     ~InstallController();
 
     ErrorCode setupContainer(const ServerCredentials &credentials, DockerContainer container, ContainerConfig &config,
@@ -81,6 +84,9 @@ public:
     // Execute against a configuration snapshot; never mutate persisted settings.
     AgentWorkloadLoginControllerResult startAgentWorkloadLogin(const SelfHostedAdminServerConfig &config,
                                                                AgentWorkloadLoginMode mode);
+    AgentWorkloadLinksResult queryAgentWorkloadLinks(const QString &serverId);
+    AgentWorkloadLinksResult queryAgentWorkloadLinks(const SelfHostedAdminServerConfig &config);
+
     AgentWorkloadLoginStatusResult queryAgentWorkloadLoginStatus(const QString &serverId,
                                                                  AgentWorkloadLoginMode mode);
 
@@ -186,6 +192,7 @@ private:
     SecureAppSettingsRepository *m_appSettingsRepository;
     SshSessionFactory m_sshSessionFactory;
     AgentBackendEnvironmentResolver m_agentBackendEnvironmentResolver;
+    AgentBackendProfileCatalogResolver m_agentBackendProfileCatalogResolver;
     bool m_cancelInstallation = false;
 
 #ifndef Q_OS_IOS

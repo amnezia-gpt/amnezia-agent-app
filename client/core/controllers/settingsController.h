@@ -81,7 +81,8 @@ public:
     void setAgentWorkloadEnvironment(const QString &environment);
     QVariantMap localAgentBackendProfile() const;
     bool saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
-                                      const QString &runtimeGatewayBaseUrl);
+                                      const QString &runtimeGatewayBaseUrl,
+                                      const QString &ingressTrustBundle, const QString &ingressTrustSha256);
 
     bool isHomeAdLabelVisible() const;
     void disableHomeAdLabel();

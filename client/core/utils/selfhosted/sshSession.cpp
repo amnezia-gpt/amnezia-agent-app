@@ -63,10 +63,31 @@ namespace
                 .arg(status ? QStringLiteral("status") : QStringLiteral("start"));
     }
 
+    std::optional<QString> enrolledIngressThumbprint(const QByteArray &payload)
+    {
+        const QJsonDocument document = QJsonDocument::fromJson(payload);
+        if (!document.isObject()) {
+            return std::nullopt;
+        }
+        const QJsonObject object = document.object();
+        if (object.size() != 2 || object.value(QStringLiteral("state")) != QStringLiteral("enrolled")
+            || !object.value(QStringLiteral("key_thumbprint")).isString()) {
+            return std::nullopt;
+        }
+        const QString thumbprint = object.value(QStringLiteral("key_thumbprint")).toString();
+        const QByteArray encoded = thumbprint.toLatin1();
+        const QByteArray decoded = QByteArray::fromBase64(encoded, QByteArray::Base64UrlEncoding);
+        if (thumbprint.size() != 43 || decoded.size() != 32
+            || decoded.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals) != encoded) {
+            return std::nullopt;
+        }
+        return thumbprint;
+    }
+
     QString agentWorkloadObservationCommand(const AgentWorkloadDeploymentSpec &desired)
     {
         const QString inspectFormat = QStringLiteral(
-                R"({"id":{{json .Id}},"name":{{json .Name}},"image_reference":{{json .Config.Image}},"image_id":{{json .Image}},"status":{{json .State.Status}},"running":{{json .State.Running}},"health":{{with .State.Health}}{{json .Status}}{{else}}"none"{{end}},"restart_policy":{{json .HostConfig.RestartPolicy.Name}},"mounts":[{{$first := true}}{{range .Mounts}}{{if not $first}},{{end}}{"type":{{json .Type}},"name":{{json .Name}},"destination":{{json .Destination}}}{{$first = false}}{{end}}],"tmpfs":[{{$first := true}}{{range $destination, $options := .HostConfig.Tmpfs}}{{if not $first}},{{end}}{"destination":{{json $destination}},"options":{{json $options}}}{{$first = false}}{{end}}],"networks":[{{$first := true}}{{range $name, $_ := .NetworkSettings.Networks}}{{if not $first}},{{end}}{{json $name}}{{$first = false}}{{end}}],"ports":[{{$first := true}}{{range $key, $bindings := .NetworkSettings.Ports}}{{range $binding := $bindings}}{{if not $first}},{{end}}{{$parts := split $key "/"}}{"host_ip":{{json $binding.HostIp}},"host_port":{{json $binding.HostPort}},"container_port":{{json (index $parts 0)}},"protocol":{{json (index $parts 1)}}}{{$first = false}}{{end}}{{end}}],"labels":{"org.amnezia.amgpt.deployment.managed-by":{{with index .Config.Labels "org.amnezia.amgpt.deployment.managed-by"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.workload":{{with index .Config.Labels "org.amnezia.amgpt.deployment.workload"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.schema-version":{{with index .Config.Labels "org.amnezia.amgpt.deployment.schema-version"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.workload-version":{{with index .Config.Labels "org.amnezia.amgpt.deployment.workload-version"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.spec-hash":{{with index .Config.Labels "org.amnezia.amgpt.deployment.spec-hash"}}{{json .}}{{else}}""{{end}}{{with index .Config.Labels "org.amnezia.amgpt.deployment.backend-profile"}},"org.amnezia.amgpt.deployment.backend-profile":{{json .}}{{end}}}})");
+                R"({"id":{{json .Id}},"name":{{json .Name}},"image_reference":{{json .Config.Image}},"image_id":{{json .Image}},"status":{{json .State.Status}},"running":{{json .State.Running}},"health":{{with .State.Health}}{{json .Status}}{{else}}"none"{{end}},"restart_policy":{{json .HostConfig.RestartPolicy.Name}},"mounts":[{{$first := true}}{{range .Mounts}}{{if not $first}},{{end}}{"type":{{json .Type}},"name":{{json .Name}},"destination":{{json .Destination}},"read_only":{{json (not .RW)}}}{{$first = false}}{{end}}],"tmpfs":[{{$first := true}}{{range $destination, $options := .HostConfig.Tmpfs}}{{if not $first}},{{end}}{"destination":{{json $destination}},"options":{{json $options}}}{{$first = false}}{{end}}],"networks":[{{$first := true}}{{range $name, $_ := .NetworkSettings.Networks}}{{if not $first}},{{end}}{{json $name}}{{$first = false}}{{end}}],"ports":[{{$first := true}}{{range $key, $bindings := .NetworkSettings.Ports}}{{range $binding := $bindings}}{{if not $first}},{{end}}{{$parts := split $key "/"}}{"host_ip":{{json $binding.HostIp}},"host_port":{{json $binding.HostPort}},"container_port":{{json (index $parts 0)}},"protocol":{{json (index $parts 1)}}}{{$first = false}}{{end}}{{end}}],"trust_environment":[{{$firstEnv := true}}{{range .Config.Env}}{{$key := index (split . "=") 0}}{{if or (eq $key "AMGPT_AUTH_ISSUER") (eq $key "AMGPT_ROUTER_BASE_URL") (eq $key "AMGPT_RUNTIME_GATEWAY_BASE_URL") (eq $key "AMGPT_INGRESS_TRUST_BUNDLE") (eq $key "AMGPT_INGRESS_TRUST_SHA256")}}{{if not $firstEnv}},{{end}}{{json .}}{{$firstEnv = false}}{{end}}{{end}}],"labels":{"org.amnezia.amgpt.deployment.managed-by":{{with index .Config.Labels "org.amnezia.amgpt.deployment.managed-by"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.workload":{{with index .Config.Labels "org.amnezia.amgpt.deployment.workload"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.schema-version":{{with index .Config.Labels "org.amnezia.amgpt.deployment.schema-version"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.workload-version":{{with index .Config.Labels "org.amnezia.amgpt.deployment.workload-version"}}{{json .}}{{else}}""{{end}},"org.amnezia.amgpt.deployment.spec-hash":{{with index .Config.Labels "org.amnezia.amgpt.deployment.spec-hash"}}{{json .}}{{else}}""{{end}}{{with index .Config.Labels "org.amnezia.amgpt.deployment.backend-profile"}},"org.amnezia.amgpt.deployment.backend-profile":{{json .}}{{end}}}})");
 
         // Only a published workload probes and claims its host port.
         const QString portProbe = desired.hostPort.isEmpty()
@@ -459,6 +480,23 @@ AgentWorkloadApplyResult SshSession::applyAgentWorkloadPlan(const ServerCredenti
     return { Status::Applied, Reason::None };
 }
 
+AgentWorkloadLifecycleResult SshSession::removeAgentWorkload(const ServerCredentials &credentials,
+                                                            DockerContainer container)
+{
+    // This target is deliberately not a deployment spec. Never use it to install/apply/login.
+    AgentWorkloadDeploymentSpec target;
+    if (container == DockerContainer::AmgptAuthProxy) {
+        target.workload = QStringLiteral("amgpt-device-gateway");
+        target.containerName = QStringLiteral("amnezia-amgpt-device-gateway");
+    } else if (container == DockerContainer::OpenClawCodex) {
+        target.workload = QStringLiteral("openclaw-codex");
+        target.containerName = QStringLiteral("amnezia-openclaw-codex");
+    } else {
+        return { AgentWorkloadLifecycleStatus::Failed, AgentWorkloadLifecycleReason::InvalidDesiredState };
+    }
+    return changeAgentWorkloadLifecycle(credentials, target, AgentWorkloadLifecycleAction::Remove);
+}
+
 AgentWorkloadLifecycleResult SshSession::changeAgentWorkloadLifecycle(const ServerCredentials &credentials,
                                                                       const AgentWorkloadDeploymentSpec &desired,
                                                                       AgentWorkloadLifecycleAction action)
@@ -466,7 +504,13 @@ AgentWorkloadLifecycleResult SshSession::changeAgentWorkloadLifecycle(const Serv
     using Reason = AgentWorkloadLifecycleReason;
     using Status = AgentWorkloadLifecycleStatus;
 
-    if (validateAgentWorkloadDeploymentSpec(desired) != AgentDeploymentValidationError::None) {
+    // Cleanup must remain available when a saved backend profile is incomplete or invalid.
+    // Removal uses only allowlisted workload/container names; no profile values reach the shell.
+    const bool validTarget = action == AgentWorkloadLifecycleAction::Remove
+            ? isSupportedObservationTarget(desired) && desired.hostPort.isEmpty()
+            : action == AgentWorkloadLifecycleAction::Stop
+                    && validateAgentWorkloadDeploymentSpec(desired) == AgentDeploymentValidationError::None;
+    if (!validTarget) {
         return { Status::Failed, Reason::InvalidDesiredState };
     }
 
@@ -474,15 +518,16 @@ AgentWorkloadLifecycleResult SshSession::changeAgentWorkloadLifecycle(const Serv
     if (before.error != AgentWorkloadObservationError::None || !before.state) {
         return { Status::Unknown, Reason::ObservationFailed };
     }
-    if (!before.state->containerPresent) {
+    if (!before.state->containerPresent && action == AgentWorkloadLifecycleAction::Stop) {
         return { Status::NoOp, Reason::ContainerMissing };
     }
 
     const QMap<QString, QString> expectedLabels = desired.deploymentLabels();
     const QString managedByKey = QStringLiteral("org.amnezia.amgpt.deployment.managed-by");
     const QString workloadKey = QStringLiteral("org.amnezia.amgpt.deployment.workload");
-    if (before.state->deploymentLabels.value(managedByKey) != expectedLabels.value(managedByKey)
-        || before.state->deploymentLabels.value(workloadKey) != desired.workload) {
+    if (before.state->containerPresent
+        && (before.state->deploymentLabels.value(managedByKey) != expectedLabels.value(managedByKey)
+            || before.state->deploymentLabels.value(workloadKey) != desired.workload)) {
         return { Status::Conflict, Reason::ContainerOwnedByOther };
     }
     if (action == AgentWorkloadLifecycleAction::Stop && !before.state->running) {
@@ -495,12 +540,36 @@ AgentWorkloadLifecycleResult SshSession::changeAgentWorkloadLifecycle(const Serv
                           .arg(desired.stopGracePeriodSeconds)
                           .arg(desired.containerName);
     } else {
-        command = QStringLiteral("sudo -n docker container rm --force '%1' >/dev/null 2>&1").arg(desired.containerName);
+        QFile playbook(QStringLiteral(":/server_scripts/remove_agent_workload.sh"));
+        if (!playbook.open(QIODevice::ReadOnly)) {
+            return { Status::Failed, Reason::CleanupUnconfirmed };
+        }
+        QString script = QString::fromUtf8(playbook.readAll());
+        // Only the validated canonical workload identity reaches this playbook.
+        script.replace(QStringLiteral("@@WORKLOAD@@"), QLatin1Char('\'') + desired.workload + QLatin1Char('\''));
+        command = agentWorkloadApplyCommand(script);
+        command.replace(QStringLiteral("sudo -n sh"), QStringLiteral("sudo -n timeout 45s sh"));
     }
 
-    const ErrorCode commandError = runScript(credentials, command);
+    QByteArray output;
+    bool outputTooLarge = false;
+    const auto capture = [&output, &outputTooLarge](const QString &data, libssh::Client &) {
+        const auto chunk = data.toUtf8();
+        if (chunk.size() > 1024 - output.size()) {
+            outputTooLarge = true;
+            return ErrorCode::ServerCheckFailed;
+        }
+        output.append(chunk);
+        return ErrorCode::NoError;
+    };
+    const auto discard = [](const QString &, libssh::Client &) { return ErrorCode::NoError; };
+    const ErrorCode commandError = runScript(credentials, command, capture, discard);
     if (commandError != ErrorCode::NoError) {
         return { Status::Unknown, Reason::CommandFailed, commandError };
+    }
+    if (action == AgentWorkloadLifecycleAction::Remove
+        && (outputTooLarge || output.trimmed() != QByteArray("AMNEZIA_AGENT_REMOVE_COMPLETE"))) {
+        return { Status::Unknown, Reason::CleanupUnconfirmed };
     }
 
     const AgentWorkloadObservationResult after = observeAgentWorkload(credentials, desired);
@@ -571,6 +640,62 @@ AgentWorkloadLoginStartResult SshSession::startAgentWorkloadLogin(
     return result;
 }
 
+AgentWorkloadLinksResult SshSession::queryAgentWorkloadLinks(const ServerCredentials &credentials)
+{
+    AgentWorkloadLinksResult result;
+    QByteArray output;
+    bool tooLarge = false;
+    const auto capture = [&output, &tooLarge](const QString &data, libssh::Client &) {
+        const auto chunk = data.toUtf8();
+        if (chunk.size() > 2 * (AgentWorkloadLinksMaxBytes + 64) - output.size()) {
+            tooLarge = true;
+            return ErrorCode::ServerCheckFailed;
+        }
+        output.append(chunk);
+        return ErrorCode::NoError;
+    };
+    const auto discard = [](const QString &, libssh::Client &) { return ErrorCode::NoError; };
+    // This SSH abstraction reports transport errors, not the remote process exit status.
+    // Preserve it explicitly; valid-looking JSON from a failed docker exec must never enable a link.
+    const auto error = runScript(credentials,
+            QStringLiteral("{ timeout 10s sudo -n docker exec -i amnezia-amgpt-device-gateway workloadctl links --json; "
+                           "amnezia_links_exit=$?; printf '\\nAMNEZIA_LINKS_EXIT=%s\\n' \"$amnezia_links_exit\"; } | base64"),
+            capture, discard);
+    if (tooLarge) {
+        result.error = AgentWorkloadLinksError::OutputTooLarge;
+        return result;
+    }
+    if (error != ErrorCode::NoError) {
+        result.error = AgentWorkloadLinksError::CommandFailed;
+        result.transportError = error;
+        return result;
+    }
+    // The SSH callback converts each chunk to QString separately. ASCII encoding avoids
+    // splitting a UTF-8 URL across those conversions; never accept lossy/raw JSON here.
+    output.replace("\r", "");
+    output.replace("\n", "");
+    const auto decoded = QByteArray::fromBase64Encoding(output, QByteArray::AbortOnBase64DecodingErrors);
+    result.error = AgentWorkloadLinksError::InvalidResponse;
+    if (!decoded || decoded.decoded.toBase64() != output) return result;
+    output = decoded.decoded;
+    if (output.size() > AgentWorkloadLinksMaxBytes + 64) {
+        result.error = AgentWorkloadLinksError::OutputTooLarge;
+        return result;
+    }
+    const QByteArray marker("\nAMNEZIA_LINKS_EXIT=");
+    const auto markerStart = output.lastIndexOf(marker);
+    result.error = AgentWorkloadLinksError::InvalidResponse;
+    if (markerStart < 0 || !output.endsWith('\n')) return result;
+    const auto status = output.mid(markerStart + marker.size()).chopped(1);
+    if (status.isEmpty() || status.size() > 3) return result;
+    for (const auto character : status) {
+        if (character < '0' || character > '9') return result;
+    }
+    const int exitCode = status.toInt();
+    if (exitCode > 255 || status != QByteArray::number(exitCode)) return result;
+    return parseAgentWorkloadLinks(output.left(markerStart), exitCode);
+}
+
 AgentWorkloadLoginStatusResult SshSession::queryAgentWorkloadLoginStatus(
         const ServerCredentials &credentials, const AgentWorkloadDeploymentSpec &desired,
         AgentWorkloadLoginMode mode)
@@ -592,9 +717,10 @@ AgentWorkloadLoginStatusResult SshSession::queryAgentWorkloadLoginStatus(
 
     QByteArray output;
     bool outputTooLarge = false;
-    const auto capture = [&output, &outputTooLarge](const QString &data, libssh::Client &) {
+    qsizetype outputLimit = AgentWorkloadLoginMaxBytes;
+    const auto capture = [&output, &outputTooLarge, &outputLimit](const QString &data, libssh::Client &) {
         const QByteArray chunk = data.toUtf8();
-        if (chunk.size() > AgentWorkloadLoginMaxBytes - output.size()) {
+        if (chunk.size() > outputLimit - output.size()) {
             outputTooLarge = true;
             return ErrorCode::ServerCheckFailed;
         }
@@ -618,6 +744,35 @@ AgentWorkloadLoginStatusResult SshSession::queryAgentWorkloadLoginStatus(
     result.error = parsed.error == AgentWorkloadLoginParseError::None
             ? AgentWorkloadLoginOperationError::None
             : AgentWorkloadLoginOperationError::InvalidResponse;
+    if (result.error != AgentWorkloadLoginOperationError::None || !result.status
+        || result.status->state != AgentWorkloadLoginState::Ready) {
+        return result;
+    }
+
+    // Auth accepts recipient enrollment only after owner activation. Both commands are idempotent;
+    // a reopened page can complete enrollment without a new login or changing device identity.
+    outputLimit = 1024;
+    std::optional<QString> enrolledThumbprint;
+    const QStringList enrollmentCommands {
+        QStringLiteral("timeout 25s sudo -n docker exec -i amnezia-amgpt-device-gateway "
+                       "amgpt-device-gateway manage ingress-init"),
+        QStringLiteral("timeout 10s sudo -n docker exec -i amnezia-amgpt-device-gateway "
+                       "amgpt-device-gateway manage ingress-status"),
+    };
+    for (const QString &command : enrollmentCommands) {
+        output.clear();
+        outputTooLarge = false;
+        const ErrorCode enrollmentError = runScript(credentials, command, capture, discard);
+        const auto thumbprint = outputTooLarge ? std::nullopt : enrolledIngressThumbprint(output);
+        if (enrollmentError != ErrorCode::NoError || !thumbprint
+            || (enrolledThumbprint && *enrolledThumbprint != *thumbprint)) {
+            result.error = AgentWorkloadLoginOperationError::IngressEnrollmentFailed;
+            result.transportError = outputTooLarge ? ErrorCode::NoError : enrollmentError;
+            result.status.reset();
+            return result;
+        }
+        enrolledThumbprint = thumbprint;
+    }
     return result;
 }
 

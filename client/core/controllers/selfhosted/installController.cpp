@@ -92,14 +92,24 @@ namespace
 
     AgentBackendProfileCatalog agentBackendProfiles(const SecureAppSettingsRepository *settings)
     {
-        const auto local = settings ? settings->localAgentBackendProfile() : QVariantMap {};
+        auto local = settings ? settings->localAgentBackendProfile() : QVariantMap {};
+        if (local.value(QStringLiteral("schemaVersion")) != QVariant(3)) local.clear();
+        QFile devFile(QStringLiteral(":/server_scripts/amgpt-device-gateway/backend-profile-dev.json"));
+        AmgptAuthProxyProtocolConfig dev;
+        if (devFile.open(QIODevice::ReadOnly) && devFile.size() <= 32 * 1024) {
+            const auto document = QJsonDocument::fromJson(devFile.readAll());
+            if (document.isObject() && document.object().value("schema_version") == QJsonValue(3)
+                && document.object().value("backend_profile") == QJsonValue("development")) {
+                dev = AmgptAuthProxyProtocolConfig::fromJson(document.object());
+            }
+        }
         return {
             {}, // Production coordinates have not been approved.
-            { QStringLiteral("development"), QStringLiteral("https://agpt-auth-dev.amzsvc.com"),
-              QStringLiteral("https://agpt-router-dev.amzsvc.com/v1"),
-              QStringLiteral("https://agpt-runtime-dev.amzsvc.com") },
+            { dev.backendProfile, dev.authIssuer, dev.routerBaseUrl, dev.runtimeGatewayBaseUrl,
+              dev.ingressTrustBundle, dev.ingressTrustSha256 },
             { QStringLiteral("local"), local.value("authIssuer").toString(),
-              local.value("routerBaseUrl").toString(), local.value("runtimeGatewayBaseUrl").toString() },
+              local.value("routerBaseUrl").toString(), local.value("runtimeGatewayBaseUrl").toString(),
+              local.value("ingressTrustBundle").toString(), local.value("ingressTrustSha256").toString() },
         };
     }
 
@@ -140,14 +150,19 @@ namespace
 InstallController::InstallController(SecureServersRepository *serversRepository,
                                      SecureAppSettingsRepository *appSettingsRepository, QObject *parent,
                                      SshSessionFactory sshSessionFactory,
-                                     AgentBackendEnvironmentResolver agentBackendEnvironmentResolver)
+                                     AgentBackendEnvironmentResolver agentBackendEnvironmentResolver,
+                                     AgentBackendProfileCatalogResolver agentBackendProfileCatalogResolver)
     : QObject(parent),
       m_serversRepository(serversRepository),
       m_appSettingsRepository(appSettingsRepository),
       m_sshSessionFactory(std::move(sshSessionFactory)),
       m_agentBackendEnvironmentResolver(std::move(agentBackendEnvironmentResolver)),
+      m_agentBackendProfileCatalogResolver(std::move(agentBackendProfileCatalogResolver)),
       m_cancelInstallation(false)
 {
+    if (!m_agentBackendProfileCatalogResolver) {
+        m_agentBackendProfileCatalogResolver = [this] { return agentBackendProfiles(m_appSettingsRepository); };
+    }
     if (!m_agentBackendEnvironmentResolver) {
         m_agentBackendEnvironmentResolver = [this] {
             const QString environment = m_appSettingsRepository
@@ -1092,16 +1107,7 @@ ErrorCode InstallController::removeContainer(const QString &serverId, DockerCont
     const auto sshSessionHolder = createSshSession();
     SshSession &sshSession = *sshSessionHolder;
     if (isAgentWorkload(container)) {
-        ContainerConfig config = adminConfig->containerConfig(container);
-        if (!prepareAgentWorkloadConfig(config)) {
-            return ErrorCode::InternalError;
-        }
-        const auto spec = agentWorkloadSpec(config);
-        if (!spec) {
-            return ErrorCode::InternalError;
-        }
-        const AgentWorkloadLifecycleResult result =
-                sshSession.changeAgentWorkloadLifecycle(credentials, *spec, AgentWorkloadLifecycleAction::Remove);
+        const AgentWorkloadLifecycleResult result = sshSession.removeAgentWorkload(credentials, container);
         if (result.status != AgentWorkloadLifecycleStatus::Applied
             && result.status != AgentWorkloadLifecycleStatus::NoOp) {
             if (result.transportError == ErrorCode::ServerCancelInstallation) {
@@ -1200,6 +1206,25 @@ AgentWorkloadControllerResult InstallController::reconcileAgentWorkload(const QS
         return result;
     }
     ContainerConfig config = adminConfig->containerConfig(container);
+    // Only explicit application resolves the latest catalog. Saved profiles remain authoritative
+    // for inspection/login. Never carry a device identity to a different environment or issuer.
+    if (auto *proxy = config.getAmgptAuthProxyProtocolConfig()) {
+        AgentDeploymentValidationError profileError = AgentDeploymentValidationError::None;
+        const auto profile = resolveAgentBackendProfile(m_agentBackendEnvironmentResolver(),
+                                                        m_agentBackendProfileCatalogResolver(), &profileError);
+        if (!profile) {
+            result.validationError = profileError;
+            return result;
+        }
+        if (proxy->backendProfile != profile->id || proxy->authIssuer != profile->authIssuer) {
+            result.validationError = AgentDeploymentValidationError::BackendEnvironmentChanged;
+            return result;
+        }
+        proxy->routerBaseUrl = profile->routerBaseUrl;
+        proxy->runtimeGatewayBaseUrl = profile->runtimeGatewayBaseUrl;
+        proxy->ingressTrustBundle = profile->ingressTrustBundle;
+        proxy->ingressTrustSha256 = profile->ingressTrustSha256;
+    }
     if (!prepareAgentWorkloadConfig(config)) {
         result.validationError = AgentDeploymentValidationError::InvalidDesiredState;
         return result;
@@ -1300,6 +1325,22 @@ AgentWorkloadLoginControllerResult InstallController::startAgentWorkloadLogin(
     return result;
 }
 
+AgentWorkloadLinksResult InstallController::queryAgentWorkloadLinks(const QString &serverId)
+{
+    if (!m_serversRepository) return {};
+    const auto config = m_serversRepository->selfHostedAdminConfig(serverId);
+    return config ? queryAgentWorkloadLinks(*config) : AgentWorkloadLinksResult {};
+}
+
+AgentWorkloadLinksResult InstallController::queryAgentWorkloadLinks(const SelfHostedAdminServerConfig &config)
+{
+    // Reading workload-owned links needs only its deployment identity and SSH credentials.
+    // It does not resolve a backend profile, inspect Docker env, mutate enrollment, or read a device ID.
+    if (!config.credentials().isValid() || !config.containers.contains(DockerContainer::AmgptAuthProxy)) return {};
+    const auto session = createSshSession();
+    return session->queryAgentWorkloadLinks(config.credentials());
+}
+
 AgentWorkloadLoginStatusResult InstallController::queryAgentWorkloadLoginStatus(const QString &serverId,
                                                                                  AgentWorkloadLoginMode mode)
 {
@@ -1351,7 +1392,7 @@ ContainerConfig InstallController::generateConfig(DockerContainer container, int
     if (container == DockerContainer::AmgptAuthProxy) {
         AgentDeploymentValidationError profileError = AgentDeploymentValidationError::None;
         const auto profile =
-                resolveAgentBackendProfile(m_agentBackendEnvironmentResolver(), agentBackendProfiles(m_appSettingsRepository), &profileError);
+                resolveAgentBackendProfile(m_agentBackendEnvironmentResolver(), m_agentBackendProfileCatalogResolver(), &profileError);
         if (profile) {
             auto *proxy = config.getAmgptAuthProxyProtocolConfig();
             if (proxy) {
@@ -1359,6 +1400,8 @@ ContainerConfig InstallController::generateConfig(DockerContainer container, int
                 proxy->authIssuer = profile->authIssuer;
                 proxy->routerBaseUrl = profile->routerBaseUrl;
                 proxy->runtimeGatewayBaseUrl = profile->runtimeGatewayBaseUrl;
+                proxy->ingressTrustBundle = profile->ingressTrustBundle;
+                proxy->ingressTrustSha256 = profile->ingressTrustSha256;
             }
         }
     }

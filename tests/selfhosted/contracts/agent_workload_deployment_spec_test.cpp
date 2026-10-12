@@ -4,18 +4,23 @@
 #include "core/models/protocols/amgptAuthProxyProtocolConfig.h"
 #include "core/models/protocols/openClawCodexProtocolConfig.h"
 
+#include "../public_trust_fixture.h"
+
 using namespace amnezia;
 
 namespace
 {
     AgentBackendProfileCatalog completeCatalog()
     {
-        return {
+        AgentBackendProfileCatalog result {
             { QStringLiteral("production"), QStringLiteral("https://auth.example.com"),
               QStringLiteral("https://router.example.com/v1"), QStringLiteral("https://runtime.example.com") },
             { QStringLiteral("development"), QStringLiteral("https://auth-dev.example.com"),
               QStringLiteral("https://router-dev.example.com/v1"), QStringLiteral("https://runtime-dev.example.com") },
         };
+        result.production = withPublicTrust(result.production);
+        result.development = withPublicTrust(result.development);
+        return result;
     }
 
     AmgptAuthProxyProtocolConfig authProxyConfig(const AgentBackendProfile &profile, const QString &port = {})
@@ -26,6 +31,8 @@ namespace
         config.authIssuer = profile.authIssuer;
         config.routerBaseUrl = profile.routerBaseUrl;
         config.runtimeGatewayBaseUrl = profile.runtimeGatewayBaseUrl;
+        config.ingressTrustBundle = profile.ingressTrustBundle;
+        config.ingressTrustSha256 = profile.ingressTrustSha256;
         return config;
     }
 } // namespace
@@ -35,6 +42,11 @@ class AgentWorkloadDeploymentSpecTest : public QObject
     Q_OBJECT
 
 private slots:
+    void rejectsProfileWithoutTrust();
+    void validatesTrust_data();
+    void validatesTrust();
+    void preservesTrustBytesAndChangesHash();
+    void localAndDevTrustAreIsolated();
     void runtimeGatewayProfileReachesDeployment();
     void resolvesBackendProfilesAtomically();
     void rejectsIncompleteBackendProfiles();
@@ -42,7 +54,8 @@ private slots:
     void persistsResolvedBackendProfile();
     void createsCompleteAuthProxyDesiredState();
     void keepsOpenClawIndependentFromBackendProfile();
-    void createsSupervisedRuntimeDesiredState();
+    void createsNativeCodexDesiredState();
+    void digestMountPermissionsAffectHashAndValidation();
     void sharesOnlyTheAppSocketVolume();
     void ignoresPersistedPublishedPorts();
     void rejectsMalformedRuntimeUrls_data();
@@ -56,6 +69,110 @@ private slots:
     void validatesCompleteCanonicalSpec();
 };
 
+void AgentWorkloadDeploymentSpecTest::rejectsProfileWithoutTrust()
+{
+    auto config = authProxyConfig(completeCatalog().development);
+    config.ingressTrustBundle.clear();
+    config.ingressTrustSha256.clear();
+    QVERIFY(!makeAgentWorkloadDeploymentSpec(config));
+}
+
+void AgentWorkloadDeploymentSpecTest::validatesTrust_data()
+{
+    QTest::addColumn<QString>("bundle");
+    QTest::addColumn<QString>("pin");
+    QTest::addColumn<bool>("accepted");
+    const auto valid = completeCatalog().development.ingressTrustBundle;
+    auto row = [&](const char *name, const QString &bundle, bool accepted = false) {
+        QTest::newRow(name) << bundle << trustPin(bundle) << accepted;
+    };
+    row("export-with-newline", valid, true);
+    row("export-without-newline", valid.trimmed(), true);
+    row("wrong-issuer", QString(valid).replace(QString("https://auth-dev.example.com"), QString("https://foreign.example")));
+    row("truncated", valid.left(valid.size() - 3));
+    row("oversized", valid + QString(16384, ' '));
+    row("trailing-json", valid + "{}");
+    row("nul-input", valid + QChar(0));
+    row("bom-input", QChar(0xfeff) + valid);
+    row("fractional-schema", QString(valid).replace("\"schema_version\": 1", "\"schema_version\": 1.0"));
+    row("exponent-schema", QString(valid).replace("\"schema_version\": 1", "\"schema_version\": 1e0"));
+    row("invalid-unicode", valid + QChar(0xd800));
+    row("duplicate-root", QString(valid).replace("\"schema_version\": 1", "\"schema_version\": 1, \"schema_version\": 1"));
+    row("escaped-duplicate-root", QString(valid).replace("\"issuer\":", "\"iss\\u0075er\": \"ignored\", \"issuer\":"));
+    row("duplicate-key-member", QString(valid).replace("\"kty\": \"EC\"", "\"kty\": \"EC\", \"kty\": \"EC\""));
+    row("private-key", QString(valid).replace("\"kty\": \"EC\"", "\"kty\": \"EC\", \"d\": \"private-material\""));
+    row("symmetric-key", QString(valid).replace("\"kty\": \"EC\"", "\"kty\": \"oct\""));
+    row("wrong-algorithm", QString(valid).replace("ES256", "HS256"));
+    row("wrong-curve", QString(valid).replace("P-256", "P-384"));
+    row("wrong-use", QString(valid).replace("\"sig\"", "\"enc\""));
+    row("empty-kid", QString(valid).replace("test-signer", ""));
+    row("long-kid", QString(valid).replace("test-signer", QString(129, 'k')));
+    auto object = QJsonDocument::fromJson(valid.toUtf8()).object();
+    auto keys = object.value("keys").toArray();
+    auto key = keys.first().toObject();
+    key["x"] = QString(43, 'A'); key["y"] = QString(43, 'A');
+    object["keys"] = QJsonArray { key };
+    row("off-curve", QString::fromUtf8(QJsonDocument(object).toJson()));
+    key["x"] = QString(42, 'A'); object["keys"] = QJsonArray { key };
+    row("short-coordinate", QString::fromUtf8(QJsonDocument(object).toJson()));
+    object["keys"] = QJsonArray {};
+    row("empty-keys", QString::fromUtf8(QJsonDocument(object).toJson()));
+    object["keys"] = QJsonArray { keys.first(), keys.first() };
+    row("duplicate-kid", QString::fromUtf8(QJsonDocument(object).toJson()));
+    QJsonArray many;
+    for (int i = 0; i < 9; ++i) { auto item = keys.first().toObject(); item["kid"] = QString::number(i); many.append(item); }
+    object["keys"] = many;
+    row("too-many-keys", QString::fromUtf8(QJsonDocument(object).toJson()));
+    object = QJsonDocument::fromJson(valid.toUtf8()).object(); object["schema_version"] = 2;
+    row("wrong-schema", QString::fromUtf8(QJsonDocument(object).toJson()));
+    QTest::newRow("wrong-pin") << valid << QString(64, '0') << false;
+    QTest::newRow("newline-pin-mismatch") << valid << trustPin(valid.trimmed()) << false;
+    QTest::newRow("malformed-pin") << valid << QString(64, 'g') << false;
+    QTest::newRow("uppercase-pin") << valid << trustPin(valid).toUpper() << true;
+}
+
+void AgentWorkloadDeploymentSpecTest::validatesTrust()
+{
+    QFETCH(QString, bundle); QFETCH(QString, pin); QFETCH(bool, accepted);
+    auto config = authProxyConfig(completeCatalog().development);
+    config.ingressTrustBundle = bundle; config.ingressTrustSha256 = pin;
+    QCOMPARE(makeAgentWorkloadDeploymentSpec(config).has_value(), accepted);
+}
+
+void AgentWorkloadDeploymentSpecTest::preservesTrustBytesAndChangesHash()
+{
+    auto config = authProxyConfig(completeCatalog().development);
+    const auto original = makeAgentWorkloadDeploymentSpec(config);
+    QVERIFY(original);
+    QCOMPARE(original->environment.value("AMGPT_INGRESS_TRUST_BUNDLE").toUtf8(), config.ingressTrustBundle.toUtf8());
+    QCOMPARE(AmgptAuthProxyProtocolConfig::fromJson(config.toJson()).ingressTrustBundle, config.ingressTrustBundle);
+    QCOMPARE(AmgptAuthProxyProtocolConfig::fromJson(config.toJson()).ingressTrustSha256, config.ingressTrustSha256);
+    auto unsupported = config.toJson();
+    unsupported["schema_version"] = 99;
+    QVERIFY(!makeAgentWorkloadDeploymentSpec(AmgptAuthProxyProtocolConfig::fromJson(unsupported)));
+    config.ingressTrustBundle += "\n";
+    config.ingressTrustSha256 = trustPin(config.ingressTrustBundle);
+    const auto rotated = makeAgentWorkloadDeploymentSpec(config);
+    QVERIFY(rotated);
+    QVERIFY(original->specHash() != rotated->specHash());
+    QCOMPARE(original->volumes.first().name, rotated->volumes.first().name);
+    QVERIFY(!makeAgentWorkloadDeploymentSpec(OpenClawCodexProtocolConfig {})->environment.contains("AMGPT_INGRESS_TRUST_BUNDLE"));
+}
+
+void AgentWorkloadDeploymentSpecTest::localAndDevTrustAreIsolated()
+{
+    auto catalog = completeCatalog();
+    catalog.local = withPublicTrust(AgentBackendProfile { "local", "https://local-auth.example", "https://local-router.example/v1", "https://local-runtime.example" }, "local-signer");
+    auto local = resolveAgentBackendProfile(AgentBackendEnvironment::Local, catalog);
+    auto dev = resolveAgentBackendProfile(AgentBackendEnvironment::Development, catalog);
+    QVERIFY(local && dev);
+    QVERIFY(local->ingressTrustSha256 != dev->ingressTrustSha256);
+    catalog.local.ingressTrustBundle = dev->ingressTrustBundle;
+    catalog.local.ingressTrustSha256 = dev->ingressTrustSha256;
+    QVERIFY(!resolveAgentBackendProfile(AgentBackendEnvironment::Local, catalog));
+    QVERIFY(resolveAgentBackendProfile(AgentBackendEnvironment::Development, catalog));
+}
+
 void AgentWorkloadDeploymentSpecTest::runtimeGatewayProfileReachesDeployment()
 {
     const QJsonObject profile {
@@ -64,7 +181,7 @@ void AgentWorkloadDeploymentSpecTest::runtimeGatewayProfileReachesDeployment()
         { QStringLiteral("router_base_url"), QStringLiteral("https://router-local.example.com/v1") },
         { QStringLiteral("runtime_gateway_base_url"), QStringLiteral("https://runtime-local.example.com") },
     };
-    const auto config = AmgptAuthProxyProtocolConfig::fromJson(profile);
+    const auto config = withPublicTrust(AmgptAuthProxyProtocolConfig::fromJson(profile));
     QCOMPARE(config.toJson().value(QStringLiteral("runtime_gateway_base_url")),
              profile.value(QStringLiteral("runtime_gateway_base_url")));
     const auto spec = makeAgentWorkloadDeploymentSpec(config);
@@ -154,14 +271,16 @@ void AgentWorkloadDeploymentSpecTest::createsCompleteAuthProxyDesiredState()
              QStringLiteral("/var/lib/amgpt-device-gateway"));
     QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_INGRESS_STATE_DIR")),
              QStringLiteral("/var/lib/amgpt-device-gateway/ingress"));
-    QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_CODEX_APP_SOCKET")),
-             QStringLiteral("/run/amgpt-codex/app-server.sock"));
-    QCOMPARE(spec->environment.size(), 6);
+    QVERIFY(!spec->environment.contains(QStringLiteral("AMGPT_CODEX_APP_SOCKET")));
+    QVERIFY(!spec->environment.contains(QStringLiteral("AMGPT_CODEX_APP_TOKEN")));
+    QVERIFY(!spec->environment.contains(QStringLiteral("AMGPT_CODEX_APP_URL")));
+    QCOMPARE(spec->environment.size(), 7);
     QCOMPARE(spec->volumes.size(), 2);
     QCOMPARE(spec->volumes.at(0).name, QStringLiteral("amnezia-amgpt-device-gateway-state"));
     QCOMPARE(spec->volumes.at(0).target, QStringLiteral("/var/lib/amgpt-device-gateway"));
     QCOMPARE(spec->volumes.at(1).name, QStringLiteral("amnezia-agent-codex-app-socket"));
     QCOMPARE(spec->volumes.at(1).target, QStringLiteral("/run/amgpt-codex"));
+    QVERIFY(!spec->volumes.at(1).readOnly);
     QCOMPARE(spec->tmpfs, QStringList { QStringLiteral("/tmp:rw,noexec,nosuid,nodev") });
     QCOMPARE(spec->capabilitiesDropped, QStringList { QStringLiteral("ALL") });
     QVERIFY(spec->capabilitiesAdded.isEmpty());
@@ -195,41 +314,56 @@ void AgentWorkloadDeploymentSpecTest::keepsOpenClawIndependentFromBackendProfile
     QVERIFY(!spec->deploymentLabels().contains(QStringLiteral("org.amnezia.amgpt.deployment.backend-profile")));
 }
 
-void AgentWorkloadDeploymentSpecTest::createsSupervisedRuntimeDesiredState()
+void AgentWorkloadDeploymentSpecTest::createsNativeCodexDesiredState()
 {
     const auto spec = makeAgentWorkloadDeploymentSpec(OpenClawCodexProtocolConfig {});
 
     QVERIFY(spec);
     QCOMPARE(spec->workload, QStringLiteral("openclaw-codex"));
     QCOMPARE(spec->containerName, QStringLiteral("amnezia-openclaw-codex"));
-    QVERIFY(spec->networkAlias.isEmpty());
+    QCOMPARE(spec->networkAlias, QStringLiteral("codex-app-server"));
     QVERIFY(spec->hostPort.isEmpty());
     QVERIFY(spec->containerPort.isEmpty());
-    // The image owns HOME, CODEX_HOME and OpenClaw paths for each service identity.
+    // The native image owns its user, entrypoint and token-digest reader.
     QVERIFY(spec->environment.isEmpty());
 
     const QList<AgentWorkloadVolume> expectedVolumes {
-        { QStringLiteral("amnezia-agent-runtime-openclaw-state"), QStringLiteral("/home/openclaw/.openclaw") },
-        { QStringLiteral("amnezia-agent-runtime-workspace"), QStringLiteral("/workspace") },
         { QStringLiteral("amnezia-agent-runtime-codex-home"), QStringLiteral("/home/codex/.codex") },
         { QStringLiteral("amnezia-agent-runtime-codex-workspace"), QStringLiteral("/codex-workspace") },
-        { QStringLiteral("amnezia-agent-codex-app-socket"), QStringLiteral("/run/amgpt-codex") },
+        { QStringLiteral("amnezia-agent-codex-app-socket"), QStringLiteral("/run/amgpt-codex"), true },
     };
     QCOMPARE(spec->volumes.size(), expectedVolumes.size());
     for (qsizetype index = 0; index < expectedVolumes.size(); ++index) {
         QCOMPARE(spec->volumes.at(index).name, expectedVolumes.at(index).name);
         QCOMPARE(spec->volumes.at(index).target, expectedVolumes.at(index).target);
+        QCOMPARE(spec->volumes.at(index).readOnly, expectedVolumes.at(index).readOnly);
     }
     QCOMPARE(spec->tmpfs, QStringList { QStringLiteral("/tmp:rw,noexec,nosuid,nodev") });
     QCOMPARE(spec->capabilitiesDropped, QStringList { QStringLiteral("ALL") });
-    QCOMPARE(spec->capabilitiesAdded,
-             QStringList({ QStringLiteral("SETUID"), QStringLiteral("SETGID"), QStringLiteral("KILL") }));
+    QVERIFY(spec->capabilitiesAdded.isEmpty());
     QCOMPARE(spec->securityOptions, QStringList { QStringLiteral("no-new-privileges") });
     QCOMPARE(spec->healthCheck.command,
-             QStringList({ QStringLiteral("node"), QStringLiteral("/opt/workload/bin/runtimectl.mjs"),
-                           QStringLiteral("healthcheck") }));
+             QStringList({ QStringLiteral("node"), QStringLiteral("-e"),
+                           QStringLiteral("fetch('http://127.0.0.1:4500/readyz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))") }));
     QCOMPARE(spec->healthCheck.startPeriodSeconds, 60);
+    QCOMPARE(spec->healthCheck.intervalSeconds, 10);
+    QCOMPARE(spec->healthCheck.timeoutSeconds, 5);
+    QCOMPARE(spec->healthCheck.retries, 3);
     QCOMPARE(spec->stopGracePeriodSeconds, 20);
+}
+
+void AgentWorkloadDeploymentSpecTest::digestMountPermissionsAffectHashAndValidation()
+{
+    const auto spec = *makeAgentWorkloadDeploymentSpec(OpenClawCodexProtocolConfig {});
+    auto writable = spec;
+    writable.volumes.last().readOnly = false;
+    QVERIFY(writable.specHash() != spec.specHash());
+    QCOMPARE(validateAgentWorkloadDeploymentSpec(writable), AgentDeploymentValidationError::InvalidDesiredState);
+    QCOMPARE(validateAgentWorkloadDeploymentSpec(spec), AgentDeploymentValidationError::None);
+
+    auto gateway = *makeAgentWorkloadDeploymentSpec(authProxyConfig(completeCatalog().development));
+    gateway.volumes.last().readOnly = true;
+    QCOMPARE(validateAgentWorkloadDeploymentSpec(gateway), AgentDeploymentValidationError::InvalidDesiredState);
 }
 
 void AgentWorkloadDeploymentSpecTest::sharesOnlyTheAppSocketVolume()
@@ -369,13 +503,13 @@ void AgentWorkloadDeploymentSpecTest::rejectsMalformedProfileUrls()
 void AgentWorkloadDeploymentSpecTest::normalizesEquivalentProfilesBeforeHashing()
 {
     const auto first = makeAgentWorkloadDeploymentSpec(
-            authProxyConfig({ QStringLiteral("development"), QStringLiteral("HTTPS://AUTH.EXAMPLE.COM/"),
+            authProxyConfig(withPublicTrust(AgentBackendProfile { QStringLiteral("development"), QStringLiteral("HTTPS://AUTH.EXAMPLE.COM/"),
                               QStringLiteral("https://ROUTER.EXAMPLE.COM/v1/"),
-                              QStringLiteral("HTTPS://RUNTIME.EXAMPLE.COM/") }));
+                              QStringLiteral("HTTPS://RUNTIME.EXAMPLE.COM/") })));
     const auto second = makeAgentWorkloadDeploymentSpec(
-            authProxyConfig({ QStringLiteral("development"), QStringLiteral("https://auth.example.com"),
+            authProxyConfig(withPublicTrust(AgentBackendProfile { QStringLiteral("development"), QStringLiteral("https://auth.example.com"),
                               QStringLiteral("https://router.example.com/v1"),
-                              QStringLiteral("https://runtime.example.com") }));
+                              QStringLiteral("https://runtime.example.com") })));
 
     QVERIFY(first);
     QVERIFY(second);

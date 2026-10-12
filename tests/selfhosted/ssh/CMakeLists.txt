@@ -25,6 +25,7 @@ add_executable(${SSH_TEST_TARGET}
     ${_client_root}/core/models/agentWorkloadDeploymentSpec.cpp
     ${_client_root}/core/models/agentWorkloadApply.cpp
     ${_client_root}/core/models/agentWorkloadReconciliation.cpp
+    ${_client_root}/core/models/agentWorkloadLinks.cpp
     ${_client_root}/core/models/agentWorkloadLogin.cpp
     ${_client_root}/core/models/protocolConfig.cpp
     ${_client_root}/core/models/protocols/awgProtocolConfig.cpp

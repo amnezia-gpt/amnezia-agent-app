@@ -7,15 +7,34 @@
 #include <memory>
 
 #include "core/controllers/selfhosted/installController.h"
+#include "core/repositories/secureServersRepository.h"
 #include "core/models/agentWorkloadApply.h"
 #include "core/models/protocols/amgptAuthProxyProtocolConfig.h"
 #include "core/models/protocols/openClawCodexProtocolConfig.h"
 #include "core/utils/selfhosted/sshSession.h"
 
+#include "../public_trust_fixture.h"
+
 using namespace amnezia;
 
 namespace
 {
+    QString decodedDeploymentCommand(const QString &command)
+    {
+        const QString prefix = QStringLiteral("payload='");
+        const auto end = command.indexOf(QStringLiteral("';"), prefix.size());
+        return command.startsWith(prefix) && end >= 0
+                ? QString::fromUtf8(QByteArray::fromBase64(command.mid(prefix.size(), end - prefix.size()).toLatin1()))
+                : command;
+    }
+    AgentBackendProfileCatalog testCatalog()
+    {
+        AgentBackendProfileCatalog catalog;
+        catalog.development = withPublicTrust(AgentBackendProfile { "development", "https://agpt-auth-dev.amzsvc.com",
+            "https://agpt-router-dev.amzsvc.com/v1", "https://agpt-runtime-dev.amzsvc.com" });
+        return catalog;
+    }
+
     struct RunnerState
     {
         QString failMarker;
@@ -28,6 +47,7 @@ namespace
         QString stderrText;
         QList<QString> observationOutputs;
         QString mutationOutput;
+        QString cleanupOutput = QStringLiteral("AMNEZIA_AGENT_REMOVE_COMPLETE\n");
         QStringList commands;
         QStringList uploads;
         int connectionCount = 0;
@@ -55,10 +75,13 @@ namespace
                                  const OutputCallback &cbReadStdErr) override
         {
             state->commands.append(data);
+            const auto payload = decodedDeploymentCommand(data);
             libssh::Client callbackClient;
             if (data.contains(QStringLiteral("docker container inspect --format"))
                 && !state->observationOutputs.isEmpty() && cbReadStdOut) {
                 cbReadStdOut(state->observationOutputs.takeFirst(), callbackClient);
+            } else if (payload.contains(QStringLiteral("AMNEZIA_AGENT_REMOVE_COMPLETE")) && cbReadStdOut) {
+                cbReadStdOut(state->cleanupOutput, callbackClient);
             } else if (data.contains(QStringLiteral("base64 -d | sudo -n sh")) && !state->mutationOutput.isEmpty()
                        && cbReadStdOut) {
                 cbReadStdOut(state->mutationOutput, callbackClient);
@@ -71,7 +94,9 @@ namespace
                     cbReadStdErr(state->stderrText, callbackClient);
                 }
             }
-            if (!state->failMarker.isEmpty() && data.contains(state->failMarker, Qt::CaseInsensitive)) {
+            if (!state->failMarker.isEmpty()
+                && (data.contains(state->failMarker, Qt::CaseInsensitive)
+                    || payload.contains(state->failMarker, Qt::CaseInsensitive))) {
                 return state->failCode;
             }
             return ErrorCode::NoError;
@@ -119,7 +144,8 @@ namespace
     int commandContaining(const RunnerState &state, const QString &marker, int from = 0)
     {
         for (int i = from; i < state.commands.size(); ++i) {
-            if (state.commands.at(i).contains(marker, Qt::CaseInsensitive)) {
+            if (state.commands.at(i).contains(marker, Qt::CaseInsensitive)
+                || decodedDeploymentCommand(state.commands.at(i)).contains(marker, Qt::CaseInsensitive)) {
                 return i;
             }
         }
@@ -141,7 +167,8 @@ namespace
             for (const auto &volume : spec.volumes) {
                 mounts.append(QJsonObject { { QStringLiteral("type"), QStringLiteral("volume") },
                                             { QStringLiteral("name"), volume.name },
-                                            { QStringLiteral("destination"), volume.target } });
+                                            { QStringLiteral("destination"), volume.target },
+                                        { QStringLiteral("read_only"), volume.readOnly } });
             }
             QJsonArray tmpfs;
             for (const QString &entry : spec.tmpfs) {
@@ -173,6 +200,7 @@ namespace
                                                          { QStringLiteral("protocol"), QStringLiteral("tcp") } } }
                             : QJsonArray {} },
                 { QStringLiteral("labels"), labels },
+                { QStringLiteral("trust_environment"), observedTrustEnvironment(spec) },
             };
             if (published) {
                 owners.append(QJsonObject { { QStringLiteral("id"), QStringLiteral("container-id") },
@@ -199,6 +227,10 @@ class InstallControllerTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void linksReadRequiresOnlyInstalledGatewayAndCredentials();
+    void gatewayRemovalDoesNotRequireTrust_data();
+    void gatewayRemovalDoesNotRequireTrust();
+    void explicitTrustRotationPersistsOnlyAfterVerifiedApply();
     void setupContainerRunsExpectedStagesInOrder();
     void updateSkipsPortCheck();
     void setupContainerStopsAtRepresentativeFailures();
@@ -217,6 +249,174 @@ private slots:
     void loginDependencyAndTransportOutcomes_data();
     void loginDependencyAndTransportOutcomes();
 };
+
+void InstallControllerTest::linksReadRequiresOnlyInstalledGatewayAndCredentials()
+{
+    SessionRecorder recorder;
+    int profileReads = 0;
+    InstallController controller(nullptr, nullptr, nullptr, recorder.factory(),
+            [] { return AgentBackendEnvironment::Development; }, [&] { ++profileReads; return AgentBackendProfileCatalog {}; });
+    SelfHostedAdminServerConfig config {};
+    const auto credentials = testCredentials();
+    config.hostName = credentials.hostName;
+    config.userName = credentials.userName;
+    config.password = credentials.secretData;
+    config.port = credentials.port;
+    QCOMPARE(controller.queryAgentWorkloadLinks(config).error, AgentWorkloadLinksError::InvalidTarget);
+    QVERIFY(recorder.state->commands.isEmpty());
+    config.containers.insert(DockerContainer::AmgptAuthProxy, ContainerConfig { DockerContainer::AmgptAuthProxy, AmgptAuthProxyProtocolConfig {} });
+    recorder.state->outputMarker = "workloadctl links --json";
+    recorder.state->stdoutText = R"({"schema_version":1,"links":[{"rel":"urn:amnezia-gpt:link-relation:client-launch:v1","type":"text/html","href":"http://localhost:5173/login?iss=https%3A%2F%2Fauth.example&target_resource=%2F%2Fdevices.amnezia-gpt%2Fdevices%2Fdev_test"}]})";
+    recorder.state->stdoutText = QString::fromLatin1((recorder.state->stdoutText + "\nAMNEZIA_LINKS_EXIT=0\n").toUtf8().toBase64());
+    const auto result = controller.queryAgentWorkloadLinks(config);
+    QCOMPARE(result.error, AgentWorkloadLinksError::None);
+    QVERIFY(result.webUi);
+    QCOMPARE(*result.webUi, QString("http://localhost:5173/login?iss=https%3A%2F%2Fauth.example&target_resource=%2F%2Fdevices.amnezia-gpt%2Fdevices%2Fdev_test"));
+    QCOMPARE(profileReads, 0);
+    QCOMPARE(recorder.state->commands.size(), 1);
+    QCOMPARE(recorder.state->uploadCount, 0);
+    recorder.state->stdoutText = R"({"schema_version":1,"links":[]})";
+    recorder.state->stdoutText = QString::fromLatin1((recorder.state->stdoutText + "\nAMNEZIA_LINKS_EXIT=0\n").toUtf8().toBase64());
+    QVERIFY(!controller.queryAgentWorkloadLinks(config).webUi);
+    QCOMPARE(recorder.state->commands.size(), 2);
+    config.password.clear();
+    QCOMPARE(controller.queryAgentWorkloadLinks(config).error, AgentWorkloadLinksError::InvalidTarget);
+    QCOMPARE(recorder.state->commands.size(), 2);
+}
+
+void InstallControllerTest::gatewayRemovalDoesNotRequireTrust_data()
+{
+    QTest::addColumn<bool>("missingTrust");
+    QTest::addColumn<int>("outcome");
+    QTest::newRow("legacy-without-trust") << true << 0;
+    QTest::newRow("invalid-pin") << false << 0;
+    QTest::newRow("already-missing") << true << 1;
+    QTest::newRow("foreign-owner") << true << 2;
+    QTest::newRow("unknown-remove-outcome") << true << 3;
+    QTest::newRow("retry-still-present") << true << 4;
+    QTest::newRow("volume-cleanup-fails") << true << 5;
+    QTest::newRow("cleanup-not-confirmed") << true << 6;
+}
+
+void InstallControllerTest::gatewayRemovalDoesNotRequireTrust()
+{
+    QFETCH(bool, missingTrust);
+    QFETCH(int, outcome);
+    SecureQSettings settings("ClientGatewayRemoval-" + QUuid::createUuid().toString(), "Isolated", nullptr, false);
+    SecureAppSettingsRepository appSettings(&settings);
+    SecureServersRepository servers(&settings);
+    SessionRecorder recorder;
+    InstallController controller(&servers, &appSettings, nullptr, recorder.factory(),
+                                 [] { return AgentBackendEnvironment::Development; }, testCatalog);
+    auto gateway = controller.generateConfig(DockerContainer::AmgptAuthProxy, 0, TransportProto::Tcp);
+    const auto installedSpec = makeAgentWorkloadDeploymentSpec(*gateway.getAmgptAuthProxyProtocolConfig());
+    QVERIFY(installedSpec);
+    auto *profile = gateway.getAmgptAuthProxyProtocolConfig();
+    profile->ingressTrustSha256 = missingTrust ? QString() : QString(64, QLatin1Char('0'));
+    if (missingTrust) profile->ingressTrustBundle.clear();
+    QVERIFY(!makeAgentWorkloadDeploymentSpec(*profile));
+    const auto sibling = controller.generateConfig(DockerContainer::OpenClawCodex, 0, TransportProto::Tcp);
+    SelfHostedAdminServerConfig admin {};
+    const auto credentials = testCredentials();
+    admin.hostName = credentials.hostName;
+    admin.userName = credentials.userName;
+    admin.password = credentials.secretData;
+    admin.port = credentials.port;
+    admin.defaultContainer = DockerContainer::AmgptAuthProxy;
+    admin.updateContainerConfig(DockerContainer::AmgptAuthProxy, gateway);
+    admin.updateContainerConfig(DockerContainer::OpenClawCodex, sibling);
+    const auto serverId = servers.addServer("test-server", admin.toJson(), serverConfigUtils::ConfigType::SelfHostedAdmin);
+    auto before = QJsonDocument::fromJson(agentObservation(*installedSpec, outcome != 1)).object();
+    if (outcome == 2) {
+        auto container = before.value("container").toObject();
+        auto labels = container.value("labels").toObject();
+        labels.insert("org.amnezia.amgpt.deployment.managed-by", "another-app");
+        container.insert("labels", labels);
+        before.insert("container", container);
+    }
+    const auto after = agentObservation(*installedSpec, outcome == 4);
+    recorder.state->observationOutputs = { QString::fromUtf8(QJsonDocument(before).toJson(QJsonDocument::Compact)),
+                                            QString::fromUtf8(after) };
+    if (outcome == 3) {
+        recorder.state->failMarker = "docker container rm --force";
+        recorder.state->failCode = ErrorCode::SshTimeoutError;
+    } else if (outcome == 5) {
+        recorder.state->failMarker = "docker volume rm";
+    } else if (outcome == 6) {
+        recorder.state->cleanupOutput.clear();
+    }
+    const auto result = controller.removeContainer(serverId, DockerContainer::AmgptAuthProxy);
+    QCOMPARE(result, outcome < 2 ? ErrorCode::NoError : ErrorCode::ServerCheckFailed);
+    QVERIFY(recorder.state->connectionCount > 0);
+    const auto stored = servers.selfHostedAdminConfig(serverId);
+    QVERIFY(stored);
+    QCOMPARE(stored->containers.contains(DockerContainer::AmgptAuthProxy), outcome >= 2);
+    QCOMPARE(stored->containerConfig(DockerContainer::OpenClawCodex).toJson(), sibling.toJson());
+    if (outcome >= 2) {
+        QCOMPARE(stored->containerConfig(DockerContainer::AmgptAuthProxy).toJson(), gateway.toJson());
+    } else {
+        QCOMPARE(stored->defaultContainer, DockerContainer::OpenClawCodex);
+    }
+    QCOMPARE(commandContaining(*recorder.state, "AMNEZIA_AGENT_REMOVE_COMPLETE") >= 0, outcome != 2);
+    QCOMPARE(commandContaining(*recorder.state, "docker volume rm") >= 0, outcome != 2);
+}
+
+void InstallControllerTest::explicitTrustRotationPersistsOnlyAfterVerifiedApply()
+{
+    SecureQSettings settings("ClientTrustRotation-" + QUuid::createUuid().toString(), "Isolated", nullptr, false);
+    SecureAppSettingsRepository appSettings(&settings);
+    SecureServersRepository servers(&settings);
+    SessionRecorder recorder;
+    auto catalog = testCatalog();
+    auto environment = AgentBackendEnvironment::Development;
+    InstallController controller(&servers, &appSettings, nullptr, recorder.factory(),
+                                 [&] { return environment; }, [&] { return catalog; });
+    SelfHostedAdminServerConfig admin {};
+    const auto credentials = testCredentials();
+    admin.hostName = credentials.hostName; admin.userName = credentials.userName;
+    admin.password = credentials.secretData; admin.port = credentials.port;
+    admin.defaultContainer = DockerContainer::AmgptAuthProxy;
+    const auto initial = controller.generateConfig(DockerContainer::AmgptAuthProxy, 0, TransportProto::Tcp);
+    admin.updateContainerConfig(DockerContainer::AmgptAuthProxy, initial);
+    const auto sibling = controller.generateConfig(DockerContainer::OpenClawCodex, 0, TransportProto::Tcp);
+    admin.updateContainerConfig(DockerContainer::OpenClawCodex, sibling);
+    const auto serverId = servers.addServer("test-server", admin.toJson(), serverConfigUtils::ConfigType::SelfHostedAdmin);
+    const auto installedSpec = makeAgentWorkloadDeploymentSpec(*initial.getAmgptAuthProxyProtocolConfig());
+    QVERIFY(installedSpec);
+    catalog.development = withPublicTrust(catalog.development, "rotated-signer");
+    const auto newConfig = controller.generateConfig(DockerContainer::AmgptAuthProxy, 0, TransportProto::Tcp);
+    const auto desired = makeAgentWorkloadDeploymentSpec(*newConfig.getAmgptAuthProxyProtocolConfig());
+    QVERIFY(desired);
+    // An unconfirmed mutation leaves the saved installation profile untouched.
+    recorder.state->observationOutputs = { QString::fromUtf8(agentObservation(*installedSpec, true)),
+                                            QString::fromUtf8(agentObservation(*installedSpec, true)) };
+    recorder.state->failMarker = "base64 -d | sudo -n sh";
+    controller.reconcileAgentWorkload(serverId, DockerContainer::AmgptAuthProxy);
+    QCOMPARE(servers.selfHostedAdminConfig(serverId)->containerConfig(DockerContainer::AmgptAuthProxy).toJson(), initial.toJson());
+    recorder.state->failMarker.clear();
+    recorder.state->observationOutputs = { QString::fromUtf8(agentObservation(*installedSpec, true)),
+        QString::fromUtf8(agentObservation(*installedSpec, true)), QString::fromUtf8(agentObservation(*desired, true)) };
+    recorder.state->mutationOutput = "AMNEZIA_AGENT_APPLY_APPLIED\n";
+    const auto result = controller.reconcileAgentWorkload(serverId, DockerContainer::AmgptAuthProxy);
+    QCOMPARE(result.plan.action, AgentWorkloadReconciliationAction::Recreate);
+    QCOMPARE(result.applyResult.status, AgentWorkloadApplyStatus::Applied);
+    const auto stored = servers.selfHostedAdminConfig(serverId);
+    QCOMPARE(stored->containerConfig(DockerContainer::AmgptAuthProxy).toJson(), newConfig.toJson());
+    QCOMPARE(stored->containerConfig(DockerContainer::OpenClawCodex).toJson(), sibling.toJson());
+    QCOMPARE(installedSpec->volumes.first().name, desired->volumes.first().name);
+    const auto connections = recorder.state->connectionCount;
+    environment = AgentBackendEnvironment::Local;
+    catalog.local = withPublicTrust(AgentBackendProfile { "local", "https://local.example", "https://router.local.example/v1", "https://runtime.local.example" });
+    QCOMPARE(controller.reconcileAgentWorkload(serverId, DockerContainer::AmgptAuthProxy).validationError,
+             AgentDeploymentValidationError::BackendEnvironmentChanged);
+    environment = AgentBackendEnvironment::Development;
+    catalog.development.authIssuer = "https://changed-issuer.example";
+    catalog.development = withPublicTrust(catalog.development);
+    QCOMPARE(controller.reconcileAgentWorkload(serverId, DockerContainer::AmgptAuthProxy).validationError,
+             AgentDeploymentValidationError::BackendEnvironmentChanged);
+    QCOMPARE(recorder.state->connectionCount, connections);
+    settings.clearSettings();
+}
 
 void InstallControllerTest::workloadEnvironmentPersistsIndependently()
 {
@@ -237,15 +437,21 @@ void InstallControllerTest::workloadEnvironmentPersistsIndependently()
         const auto config = controller.generateConfig(DockerContainer::AmgptAuthProxy, 8080, TransportProto::Tcp);
         QVERIFY(!makeAgentWorkloadDeploymentSpec(*config.getAmgptAuthProxyProtocolConfig()));
         QVERIFY(repository.localAgentBackendProfile().isEmpty());
-        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "", "https://runtime.example"));
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "", "https://runtime.example", publicTrustFixture("https://auth.example"), trustPin(publicTrustFixture("https://auth.example"))));
         QVERIFY(repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1",
-                                                       "https://runtime.example"));
+                                                       "https://runtime.example", publicTrustFixture("https://auth.example"), trustPin(publicTrustFixture("https://auth.example"))));
         const auto profile = repository.localAgentBackendProfile();
-        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1", ""));
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1", "", publicTrustFixture("https://auth.example"), trustPin(publicTrustFixture("https://auth.example"))));
         QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1",
-                                                        "https://runtime.example/v1"));
+                                                        "https://runtime.example/v1", publicTrustFixture("https://auth.example"), trustPin(publicTrustFixture("https://auth.example"))));
         QVERIFY(!repository.saveLocalAgentBackendProfile("http://auth.example", "https://router.example/v1",
-                                                       "https://runtime.example"));
+                                                       "https://runtime.example", publicTrustFixture("https://auth.example"), trustPin(publicTrustFixture("https://auth.example"))));
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1",
+                "https://runtime.example", publicTrustFixture("https://other.example"), trustPin(publicTrustFixture("https://other.example"))));
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1",
+                "https://runtime.example", publicTrustFixture("https://auth.example"), QString(64, '0')));
+        QVERIFY(!repository.saveLocalAgentBackendProfile("https://auth.example", "https://router.example/v1",
+                "https://runtime.example", "broken", trustPin("broken")));
         QCOMPARE(repository.localAgentBackendProfile(), profile);
         const auto configured = controller.generateConfig(DockerContainer::AmgptAuthProxy, 8080, TransportProto::Tcp);
         QCOMPARE(configured.getAmgptAuthProxyProtocolConfig()->authIssuer, QStringLiteral("https://auth.example"));
@@ -261,6 +467,8 @@ void InstallControllerTest::workloadEnvironmentPersistsIndependently()
         QCOMPARE(repository.localAgentBackendProfile().value("authIssuer").toString(), QStringLiteral("https://auth.example"));
         QCOMPARE(repository.localAgentBackendProfile().value("runtimeGatewayBaseUrl").toString(),
                  QStringLiteral("https://runtime.example"));
+        QCOMPARE(repository.localAgentBackendProfile().value("ingressTrustBundle").toString(), publicTrustFixture("https://auth.example"));
+        QCOMPARE(repository.localAgentBackendProfile().value("ingressTrustSha256").toString(), trustPin(publicTrustFixture("https://auth.example")));
         repository.setAgentWorkloadEnvironment("dev");
         QCOMPARE(repository.agentWorkloadEnvironment(), QStringLiteral("dev"));
         settings.setValue("Conf/agentWorkloadEnvironment", "invalid-import");
@@ -277,7 +485,7 @@ void InstallControllerTest::localProfileAndUnavailableProduction()
 {
     SessionRecorder recorder;
     auto environment = AgentBackendEnvironment::Local;
-    InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), [&] { return environment; });
+    InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), [&] { return environment; }, testCatalog);
     const auto config = controller.generateConfig(DockerContainer::AmgptAuthProxy, 8080, TransportProto::Tcp);
     const auto *proxy = config.getAmgptAuthProxyProtocolConfig();
     QVERIFY(proxy);
@@ -318,7 +526,7 @@ void InstallControllerTest::loginDependencyAndTransportOutcomes()
     SessionRecorder recorder;
     auto selectedEnvironment = AgentBackendEnvironment::Development;
     InstallController controller(nullptr, nullptr, nullptr, recorder.factory(),
-                                 [&] { return selectedEnvironment; });
+                                 [&] { return selectedEnvironment; }, testCatalog);
     SelfHostedAdminServerConfig config {};
     const auto credentials = testCredentials();
     config.hostName = credentials.hostName;
@@ -396,7 +604,7 @@ void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
 {
     SessionRecorder recorder;
     InstallController controller(nullptr, nullptr, nullptr, recorder.factory(),
-                                 [] { return AgentBackendEnvironment::Development; });
+                                 [] { return AgentBackendEnvironment::Development; }, testCatalog);
     ContainerConfig config;
 
     AmgptAuthProxyProtocolConfig expectedConfig;
@@ -404,7 +612,7 @@ void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
     expectedConfig.authIssuer = QStringLiteral("https://agpt-auth-dev.amzsvc.com");
     expectedConfig.routerBaseUrl = QStringLiteral("https://agpt-router-dev.amzsvc.com/v1");
     expectedConfig.runtimeGatewayBaseUrl = QStringLiteral("https://agpt-runtime-dev.amzsvc.com");
-    const auto expectedSpec = makeAgentWorkloadDeploymentSpec(expectedConfig);
+    const auto expectedSpec = makeAgentWorkloadDeploymentSpec(withPublicTrust(expectedConfig));
     QVERIFY(expectedSpec);
     recorder.state->observationOutputs = {
         QString::fromUtf8(agentObservation(*expectedSpec, false)),
@@ -431,7 +639,7 @@ void InstallControllerTest::agentWorkloadInstallUsesTypedPathAndAtomicProfile()
 void InstallControllerTest::agentWorkloadInstallKeepsTheSiblingOutOfItsMutation()
 {
     SessionRecorder recorder;
-    InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+    InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
     ContainerConfig config;
     OpenClawCodexProtocolConfig expectedConfig;
     const auto expectedSpec = makeAgentWorkloadDeploymentSpec(expectedConfig);
@@ -472,7 +680,7 @@ void InstallControllerTest::setupContainerRunsExpectedStagesInOrder()
 
     for (const auto &[isUpdate, stages] : cases) {
         SessionRecorder recorder;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, isUpdate),
@@ -496,7 +704,7 @@ void InstallControllerTest::setupContainerRunsExpectedStagesInOrder()
 void InstallControllerTest::updateSkipsPortCheck()
 {
     SessionRecorder recorder;
-    InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+    InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
     ContainerConfig config = openVpnConfig(controller);
 
     QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, true), ErrorCode::NoError);
@@ -534,7 +742,7 @@ void InstallControllerTest::setupContainerStopsAtRepresentativeFailures()
         SessionRecorder recorder;
         recorder.state->failMarker = stage.marker;
         recorder.state->failCode = stage.expected;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         const ErrorCode actual = controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, false);
@@ -556,7 +764,7 @@ void InstallControllerTest::serverBusyProbeTransportFailureIsCurrentlyIgnored()
     SessionRecorder recorder;
     recorder.state->failMarker = QStringLiteral("LOCK_FILE");
     recorder.state->failCode = ErrorCode::SshRequestDeniedError;
-    InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+    InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
     ContainerConfig config = openVpnConfig(controller);
 
     // isServerDpkgBusy currently discards the SshSession error and decides
@@ -576,7 +784,7 @@ void InstallControllerTest::bestEffortCleanupAndFirewallDoNotAbortSetup()
     for (const QString &ignoredStage : ignoredStages) {
         SessionRecorder recorder;
         recorder.state->failMarker = ignoredStage;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, false),
@@ -600,7 +808,7 @@ void InstallControllerTest::setupContainerPropagatesConnectionAndScpFailures()
     {
         SessionRecorder recorder;
         recorder.state->connectCode = ErrorCode::SshTimeoutError;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, false),
@@ -612,7 +820,7 @@ void InstallControllerTest::setupContainerPropagatesConnectionAndScpFailures()
         SessionRecorder recorder;
         recorder.state->failUploadAt = 1;
         recorder.state->uploadFailCode = ErrorCode::SshScpFailureError;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, false),
@@ -625,7 +833,7 @@ void InstallControllerTest::setupContainerPropagatesConnectionAndScpFailures()
         SessionRecorder recorder;
         recorder.state->failUploadAt = 2;
         recorder.state->uploadFailCode = ErrorCode::SshScpFailureError;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, false),
@@ -638,7 +846,7 @@ void InstallControllerTest::setupContainerPropagatesConnectionAndScpFailures()
         SessionRecorder recorder;
         recorder.state->failUploadAt = 3;
         recorder.state->uploadFailCode = ErrorCode::SshScpFailureError;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, false),
@@ -669,7 +877,7 @@ void InstallControllerTest::setupContainerMapsCommandOutputErrors()
         SessionRecorder recorder;
         recorder.state->outputMarker = testCase.marker;
         recorder.state->stdoutText = testCase.output;
-        InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+        InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
         ContainerConfig config = openVpnConfig(controller);
 
         QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::OpenVpn, config, false),
@@ -685,7 +893,7 @@ void InstallControllerTest::conntrackInstallFailureIsBestEffort()
     SessionRecorder recorder;
     recorder.state->failMarker = QStringLiteral("conntrack");
     recorder.state->failCode = ErrorCode::SshRequestDeniedError;
-    InstallController controller(nullptr, nullptr, nullptr, recorder.factory());
+    InstallController controller(nullptr, nullptr, nullptr, recorder.factory(), {}, testCatalog);
     ContainerConfig config = controller.generateConfig(DockerContainer::MtProxy, 8443, TransportProto::Tcp);
 
     QCOMPARE(controller.setupContainer(testCredentials(), DockerContainer::MtProxy, config, false), ErrorCode::NoError);

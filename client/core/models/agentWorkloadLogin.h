@@ -71,6 +71,7 @@ namespace amnezia
         OutputTooLarge,
         InvalidResponse,
         RemoteFailure,
+        IngressEnrollmentFailed,
     };
 
     enum class AgentWorkloadLoginPrecondition {

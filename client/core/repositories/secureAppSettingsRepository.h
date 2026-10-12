@@ -67,7 +67,8 @@ public:
     void setAgentWorkloadEnvironment(const QString &environment);
     QVariantMap localAgentBackendProfile() const;
     bool saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
-                                      const QString &runtimeGatewayBaseUrl);
+                                      const QString &runtimeGatewayBaseUrl,
+                                      const QString &ingressTrustBundle, const QString &ingressTrustSha256);
     QByteArray readGatewayProxyUrls(const QString &cacheKey) const;
     void writeGatewayProxyUrls(const QString &cacheKey, const QByteArray &proxyUrlsEncrypted);
 

@@ -1,164 +1,88 @@
-# Interactive OpenClaw and Codex smoke commands
+# Interactive Codex smoke commands
 
 Use this runbook first when the operator asks for SSH test requests or live
-agent output. Give the commands immediately. Rediscover flags/configuration only
-after a failure or a runtime version change. Do not run billed inference just to
-prepare command instructions.
+agent output. Give ready one-shot commands; rediscover flags only after a
+failure or a runtime version change. Do not run billed inference merely to
+prepare instructions. Never save operator connection details in this file.
 
-## Known runtime contract
+## Native runtime contract (GH-34 / ADR-017)
 
-The workload image pins OpenClaw 2026.7.1 and Codex CLI 0.144.3. These are
-command instructions, not evidence that an inference turn has completed on any
-particular deployment. Do not add operator-specific smoke evidence here.
-
-- Runtime container: `amnezia-openclaw-codex`.
-- Gateway container: `amnezia-amgpt-device-gateway`.
-- OpenClaw identity: `openclaw`, workspace `/workspace`; image defaults already
-  select its HOME, state directory and rendered config.
-- Codex identity: `codex`, HOME `/home/codex`, CODEX_HOME `/home/codex/.codex`,
-  workspace `/codex-workspace`. Set these explicitly for `docker exec`.
-- Managed Codex overrides: `/opt/workload/config/codex-app-server-overrides.json`.
-  Reuse them rather than reconstructing provider flags. They select the workload
-  Gateway, model catalog, model and container sandbox policy.
-- The overrides require `AMGPT_CODEX_USER_AGENT=Codex/<installed-version>`.
-  Neither command requires copying OAuth tokens or API keys.
-- Do not run service commands as container root: service-owned homes are private
-  and root lacks DAC override capabilities.
-- `openclaw agent --json` buffers its final result. For a visible interactive
-  run, use TUI. `codex exec` streams progress to stderr; inherit both stdout and
-  stderr instead of capturing them until process exit.
+- Runtime UI name: **Codex**. The compatibility container name remains
+  `amnezia-openclaw-codex`; the published image contains no OpenClaw.
+- Runtime identity: image-owned `codex` (10100), HOME `/home/codex`,
+  CODEX_HOME `/home/codex/.codex`, workspace `/codex-workspace`.
+- The inspected native image pins Codex 0.162.1. Its managed provider policy is
+  `/etc/codex/requirements.toml`; its model catalog is
+  `/opt/codex/config/amgpt-models-app-server.json`. The image supplies
+  `AMGPT_CODEX_USER_AGENT`. The old `/opt/workload` override file, `runtimectl`
+  and `openclaw` user are gone.
+- Gateway: `amnezia-amgpt-device-gateway`. It owns device login, Router
+  credentials and the App Server capability token. Do not read or copy those
+  credentials into the runtime or desktop.
+- The runtime reads only the token digest from the read-only shared volume.
+  Only Gateway authenticates to the native App Server. Direct CLI smoke below
+  runs a separate Codex process against the managed provider; it does **not**
+  prove the Gateway-to-App-Server connection or a WebUI session.
 
 ## One-shot SSH commands (default)
 
-Default to one command per SSH connection: stream stdout/stderr and disconnect
-when it completes. Give copy/paste commands on one physical line with balanced
-quotes; avoid multi-line quoted SSH payloads. If a shell is awaiting more input,
-Ctrl+C cancels that incomplete input. Do not require a persistent SSH shell or TUI unless requested.
-Substitute the operator's connection coordinates without storing them here.
-
-OpenClaw: use a temporary TTY (`ssh -t` and `docker exec -it`) and explicit
-`--log-level info` plus `--verbose on`. The remote command exits on completion;
-no persistent SSH shell or TUI is started. Keep one physical line per command.
+Substitute the operator's private key, SSH port, account and host. Each code
+block contains one physical command line with balanced quotes. A temporary
+TTY streams progress and tool output; the connection closes when the turn
+ends. Keep both stdout and stderr visible. Ctrl+C interrupts a foreground turn.
 
 First turn:
 
 ```sh
-ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-1 --verbose on --timeout 180 --message "Reply with exactly SMOKE_OK."'
+ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -w /codex-workspace amnezia-openclaw-codex codex -c model_catalog_json=\"/opt/codex/config/amgpt-models-app-server.json\" -c model_reasoning_effort=\"low\" exec --skip-git-repo-check --color never --model gpt-5.6-luna "First explain your next step, then run pwd and uname -a using your shell tool, and explain the result. Do not read secrets or modify files."'
 ```
 
-Second turn with the same agent conversation:
+Continue that CLI conversation (not a persistent SSH connection):
 
 ```sh
-ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-1 --verbose on --timeout 180 --message "What exact phrase did I ask you to reply with in my previous message?"'
+ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -w /codex-workspace amnezia-openclaw-codex codex -c model_catalog_json=\"/opt/codex/config/amgpt-models-app-server.json\" -c model_reasoning_effort=\"low\" exec --skip-git-repo-check --color never --model gpt-5.6-luna resume --last "What commands did I ask you to run in the previous turn?"'
 ```
 
-Tool execution in a separate conversation:
+If other CLI tests run concurrently, use the explicit thread ID in place of
+`--last`. App Server threads and CLI conversations are separate test surfaces.
+The command shape follows the native image policy and earlier CLI smoke;
+live CLI inference has not been repeated for this client change.
 
-```sh
-ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-2 --verbose on --timeout 180 --message "Run uname -a using your shell tool and explain its output."'
-```
-
-Free-form question:
-
-```sh
-ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u openclaw amnezia-openclaw-codex openclaw --log-level info agent --local --agent main --session-id smoke-3 --verbose on --timeout 180 --message "Explain Docker briefly in two sentences."'
-```
-
-The session ID selects agent conversation history, not a persistent SSH session.
-CLI verbose output is not a token-by-token response stream. Keep stderr visible;
-do not pipe it into a final-result-only parser.
-
-Codex progress and tool output, using the managed profile:
-
-```sh
-ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec -it -u codex -w /codex-workspace -e HOME=/home/codex -e CODEX_HOME=/home/codex/.codex amnezia-openclaw-codex node -e '"'"'const fs = require("node:fs"); const { spawnSync } = require("node:child_process"); const version = spawnSync("codex", ["--version"], { encoding: "utf8" }).stdout.trim(); const match = /^codex-cli (\S+)$/.exec(version); if (!match) throw new Error("Cannot determine installed Codex version"); process.env.AMGPT_CODEX_USER_AGENT = "Codex/" + match[1]; const overrides = JSON.parse(fs.readFileSync("/opt/workload/config/codex-app-server-overrides.json", "utf8")); const args = overrides.flatMap(value => ["-c", value]); args.push("exec", "--ignore-user-config", "--skip-git-repo-check", "--color", "never", "First explain your next step, then run pwd and printf CODEX_OK using your shell tool, and explain the result."); process.exit(spawnSync("codex", args, { stdio: "inherit" }).status ?? 1);'"'"''
-```
-
-## Watch Device Gateway in a second terminal
-
-While an agent turn runs in the first terminal, follow Gateway diagnostics in
-another terminal with this one-line command:
+## Gateway diagnostics in another terminal
 
 ```sh
 ssh -t -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker logs -f --tail 20 amnezia-amgpt-device-gateway'
 ```
 
-This command deliberately stays connected to follow new events. Ctrl+C stops
-the log viewer. Gateway logs contain bounded diagnostic outcomes, not raw
-model prompts, responses or credentials. Watching them is not evidence of a
-successful inference turn; inspect the agent's own result as well.
+This viewer stays connected; Ctrl+C closes it. Logs contain bounded diagnostic
+outcomes, not raw model requests or credentials. The provider proxy does not
+emit per-request access logs, and check-in logs reflect transitions rather
+than every heartbeat. Silence during a CLI turn does not prove failure.
 
-The current provider proxy (`handleProxy`, `/v1/*`) does not emit per-request
-access logs. A successful OpenClaw/Codex turn may add no Gateway log line.
-Calling it from outside the host does not change that. `openclaw --log-level`
-controls OpenClaw, not Gateway logging. Check-in logs are emitted on state
-changes, not for every successful heartbeat. Do not recommend this log viewer
-as a way to observe each model request; that requires Gateway instrumentation
-for bounded method/route/status/duration metadata without payloads or credentials.
-
-## Persistent SSH connection (only when requested)
-
-Use the operator's own host, account, port and authentication method. Do not
-commit connection details, credentials or private key paths into this runbook.
+Read device connectivity without printing credentials:
 
 ```sh
-ssh -t -p <ssh-port> <ssh-user>@<host>
+ssh -i <private-key> -o IdentitiesOnly=yes -p <ssh-port> <ssh-user>@<host> 'docker exec amnezia-amgpt-device-gateway workloadctl connectivity status --json'
 ```
 
-Run the following blocks inside that SSH session.
+## Pair acceptance
 
-## OpenClaw: live terminal UI
+Use matching GH-34 / ADR-017 images and client. Remove the previous pair through
+Amnezia, then install with fresh volumes and perform a new device login.
+Test both install orders. Runtime-first is healthy but locked; creating Gateway
+must restart it after publishing the digest. Ordinary Gateway start preserves
+its token and does not restart Codex.
 
-```sh
-docker exec -it -u openclaw -w /workspace -e TERM=xterm-256color \
-  amnezia-openclaw-codex \
-  openclaw tui --local --session ssh-openclaw-smoke --timeout-ms 180000 \
-  --message 'First explain your next step, then run pwd and printf OPENCLAW_OK using your shell tool, and explain the result. Do not read secrets or modify files.'
-```
+- Both containers must be Docker `healthy`; health alone is insufficient.
+- Gateway must report `codex_app_auth` with outcome `published`.
+- The current runtime start must not report `listener locked until restart`.
+  Historical lines from a prior locked start may remain in `docker logs`.
+- After login, connectivity must become `active`; open WebUI from the Gateway
+  page, start a session and verify streaming output there.
+- A failed post-create runtime restart is a partial apply. Restart Codex
+  by stopping and starting it through the client and repeat pair acceptance.
 
-Use Ctrl+O to expand tool output, Ctrl+T to toggle available thinking output,
-Esc to abort a running turn, and Ctrl+D to exit. The model's internal reasoning
-may not be exposed; visible progress consists of messages, tools and status.
-Use a different session name for a fresh conversation. Check state-directory
-ownership behavior when upgrading OpenClaw; newer versions may require using
-the running OpenClaw Gateway rather than local embedded mode.
-
-## Codex: live progress and command output
-
-The Node launcher uses built-in modules and inherits the terminal streams.
-It copies the same managed overrides as the supervised App Server and derives
-the required runtime header from the bundled binary.
-
-```sh
-docker exec -it -u codex -w /codex-workspace \
-  -e HOME=/home/codex -e CODEX_HOME=/home/codex/.codex \
-  amnezia-openclaw-codex node -e '
-const fs = require("node:fs");
-const { spawnSync } = require("node:child_process");
-const version = spawnSync("codex", ["--version"], { encoding: "utf8" }).stdout.trim();
-const match = /^codex-cli (\S+)$/.exec(version);
-if (!match) throw new Error("Cannot determine installed Codex version");
-process.env.AMGPT_CODEX_USER_AGENT = "Codex/" + match[1];
-const overrides = JSON.parse(fs.readFileSync("/opt/workload/config/codex-app-server-overrides.json", "utf8"));
-const args = overrides.flatMap(value => ["-c", value]);
-args.push("exec", "--ignore-user-config", "--skip-git-repo-check", "--color", "always",
-  "First explain your next step, then run pwd and printf CODEX_OK using your shell tool, and explain the result. Do not read secrets or modify files.");
-process.exit(spawnSync("codex", args, { stdio: "inherit" }).status ?? 1);
-'
-```
-
-Ctrl+C interrupts the foreground test. This creates a separate CLI session;
-it does not send a turn into an existing supervised App Server thread.
-
-## Runtime prerequisites
-
-- Both workloads must be running. Sign-in readiness alone does not prove
-  automatic check-in; the shared Codex socket must also be ready.
-- `docker stop` leaves a workload installed. Removing a server from the desktop
-  leaves its services on the host. Do not interpret either operation as remote
-  workload removal.
-- Check-in without credentials should return the Runtime service's JSON 401;
-  this proves route reachability, not authenticated check-in success.
-
-References: [OpenClaw TUI](https://docs.openclaw.ai/web/tui) and
-[OpenAI Docs: non-interactive Codex](https://learn.chatgpt.com/docs/non-interactive-mode).
+Stopping leaves a workload installed. Explicit removal deletes its private
+state; shared network/digest resources remain while the sibling uses them.
+See [ADR-0007](../decisions/0007-gateway-owned-codex-capability.md) and the
+[workload contract](https://github.com/amnezia-gpt/agent-workloads/blob/main/docs/amnezia-client-deployment.md).

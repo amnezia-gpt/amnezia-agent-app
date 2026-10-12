@@ -11,6 +11,7 @@
 #include <QXmlStreamReader>
 
 #include "core/models/containerConfig.h"
+#include "core/models/agentWorkloadDeploymentSpec.h"
 #include "core/models/protocols/amgptAuthProxyProtocolConfig.h"
 #include "core/models/protocols/awgProtocolConfig.h"
 #include "core/models/protocols/mtProxyProtocolConfig.h"
@@ -26,6 +27,8 @@
 #include "core/utils/containers/containerUtils.h"
 #include "core/utils/selfhosted/scriptsRegistry.h"
 #include "core/utils/selfhosted/sshSession.h"
+
+#include "../public_trust_fixture.h"
 
 using namespace amnezia;
 
@@ -375,7 +378,7 @@ namespace
               "amnezia-openclaw-codex",
               "openclaw-codex",
               "openclawcodex",
-              "OpenClaw + Codex",
+              "Codex",
               Proto::OpenClawCodex,
               ServiceType::Other,
               expectedPlatformSupport(DockerContainer::OpenClawCodex),
@@ -483,6 +486,31 @@ class ContainerRegistryContractTest : public QObject
     Q_OBJECT
 
 private slots:
+    void embeddedDevelopmentProfileIsDeployable()
+    {
+        QFile file(QStringLiteral(":/server_scripts/amgpt-device-gateway/backend-profile-dev.json"));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonParseError parseError;
+        const auto document = QJsonDocument::fromJson(file.readAll(), &parseError);
+        QCOMPARE(parseError.error, QJsonParseError::NoError);
+        QVERIFY(document.isObject());
+        const auto profile = document.object();
+        QCOMPARE(profile.value(QStringLiteral("schema_version")).toInt(), 3);
+        const auto config = AmgptAuthProxyProtocolConfig::fromJson(profile);
+        QCOMPARE(config.backendProfile, QStringLiteral("development"));
+        QCOMPARE(config.authIssuer, QStringLiteral("https://agpt-auth-dev.amzsvc.com"));
+
+        AgentDeploymentValidationError error;
+        const auto spec = makeAgentWorkloadDeploymentSpec(config, &error);
+        QCOMPARE(error, AgentDeploymentValidationError::None);
+        QVERIFY(spec.has_value());
+        QCOMPARE(validateAgentWorkloadDeploymentSpec(*spec), AgentDeploymentValidationError::None);
+        QVERIFY(config.ingressTrustBundle.endsWith(QLatin1Char('\n')));
+        QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_INGRESS_TRUST_BUNDLE")),
+                 config.ingressTrustBundle);
+        QCOMPARE(spec->environment.value(QStringLiteral("AMGPT_INGRESS_TRUST_SHA256")),
+                 config.ingressTrustSha256);
+    }
     void deviceGatewayOwnsTheOnlyLoginUi()
     {
         QFile file(sourceRoot() + QStringLiteral("/client/ui/qml/Pages2/PageServiceAgentWorkloadSettings.qml"));
@@ -830,6 +858,7 @@ void ContainerRegistryContractTest::agentWorkloadConfigsRoundTripIndependently()
         QStringLiteral("https://router-dev.example.com/v1"),
         QStringLiteral("https://runtime-dev.example.com"),
     };
+    *proxy.getAmgptAuthProxyProtocolConfig() = withPublicTrust(*proxy.getAmgptAuthProxyProtocolConfig());
 
     const QJsonObject proxyJson = proxy.toJson();
     QCOMPARE(proxyJson.value(QStringLiteral("container")).toString(), QStringLiteral("amnezia-amgpt-device-gateway"));
@@ -887,6 +916,7 @@ void ContainerRegistryContractTest::agentWorkloadDesiredStateFlowsThroughScriptR
         QStringLiteral("https://router-dev.example.com/v1"),
         QStringLiteral("https://runtime-dev.example.com"),
     };
+    *proxy.getAmgptAuthProxyProtocolConfig() = withPublicTrust(*proxy.getAmgptAuthProxyProtocolConfig());
 
     const ScriptVars proxyVars = genProtocolVarsForContainer(DockerContainer::AmgptAuthProxy, proxy);
     QVERIFY(!mapKeys(proxyVars).contains(QStringLiteral("$AMGPT_DEVICE_GATEWAY_PORT")));

@@ -1,0 +1,9 @@
+{
+    "schema_version": 3,
+    "backend_profile": "development",
+    "auth_issuer": "https://agpt-auth-dev.amzsvc.com",
+    "router_base_url": "https://agpt-router-dev.amzsvc.com/v1",
+    "runtime_gateway_base_url": "https://agpt-runtime-dev.amzsvc.com",
+    "ingress_trust_bundle": "{\"issuer\": \"https://agpt-auth-dev.amzsvc.com\", \"keys\": [{\"alg\": \"ES256\", \"crv\": \"P-256\", \"kid\": \"ingress-1db2aedb3e974f7fbe2d23d006f951ed\", \"kty\": \"EC\", \"use\": \"sig\", \"x\": \"w42yX9HmUv0hjNyUPbq215zjvYB-o6XCG74dt0Eut8g\", \"y\": \"D2ZU16Eyws9MwpjueuIj0qx8ir4V0dnwweLhi1TTNrM\"}], \"schema_version\": 1}\n",
+    "ingress_trust_sha256": "31a68940a0519b89bf4f50187642d134fac4f406d3b9b10fcd8135004bb8b38e"
+}

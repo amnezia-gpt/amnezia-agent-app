@@ -1,6 +1,8 @@
 <RCC>
     <qresource prefix="/server_scripts">
+        <file>remove_agent_workload.sh</file>
         <file>amgpt-device-gateway/Dockerfile</file>
+        <file>amgpt-device-gateway/backend-profile-dev.json</file>
         <file>amgpt-device-gateway/run_container.sh</file>
         <file>awg/configure_container.sh</file>
         <file>awg/Dockerfile</file>

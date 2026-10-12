@@ -308,17 +308,21 @@ QVariantMap SecureAppSettingsRepository::localAgentBackendProfile() const
 }
 
 bool SecureAppSettingsRepository::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
-                                                               const QString &runtimeGatewayBaseUrl)
+                                                               const QString &runtimeGatewayBaseUrl,
+                                      const QString &ingressTrustBundle, const QString &ingressTrustSha256)
 {
     AgentBackendProfileCatalog catalog;
     catalog.local = { QStringLiteral("local"), authIssuer.trimmed(), routerBaseUrl.trimmed(),
-                      runtimeGatewayBaseUrl.trimmed() };
+                      runtimeGatewayBaseUrl.trimmed(), ingressTrustBundle, ingressTrustSha256.trimmed() };
     const auto profile = resolveAgentBackendProfile(AgentBackendEnvironment::Local, catalog);
     if (!profile) return false;
     setValue("Conf/localAgentBackendProfile", QVariantMap {
+        { QStringLiteral("schemaVersion"), 3 },
         { QStringLiteral("authIssuer"), profile->authIssuer },
         { QStringLiteral("routerBaseUrl"), profile->routerBaseUrl },
         { QStringLiteral("runtimeGatewayBaseUrl"), profile->runtimeGatewayBaseUrl },
+        { QStringLiteral("ingressTrustBundle"), profile->ingressTrustBundle },
+        { QStringLiteral("ingressTrustSha256"), profile->ingressTrustSha256 },
     });
     return true;
 }

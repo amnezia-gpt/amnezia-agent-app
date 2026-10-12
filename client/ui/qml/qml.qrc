@@ -1,5 +1,6 @@
 <RCC>
     <qresource prefix="/ui/qml">
+        <file>Components/PublicTrustBundleInput.qml</file>
         <file>Components/AdLabel.qml</file>
         <file>Components/ConnectButton.qml</file>
         <file>Components/ConnectionTypeSelectionDrawer.qml</file>
