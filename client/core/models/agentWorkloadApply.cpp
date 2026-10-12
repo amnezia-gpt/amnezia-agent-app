@@ -2,6 +2,7 @@
 
 #include "core/utils/containerEnum.h"
 #include "core/utils/selfhosted/scriptsRegistry.h"
+#include "core/models/protocols/openClawCodexProtocolConfig.h"
 
 #include <QMap>
 #include <QRegularExpression>
@@ -79,7 +80,8 @@ namespace amnezia
             QStringList arguments;
             for (const auto &volume : volumes) {
                 arguments.append(QStringLiteral("    --volume %1 \\")
-                                         .arg(shellQuote(volume.name + QLatin1Char(':') + volume.target)));
+                                         .arg(shellQuote(volume.name + QLatin1Char(':') + volume.target
+                                                         + (volume.readOnly ? QStringLiteral(":ro") : QString()))));
             }
             return continuationBlock(arguments);
         }
@@ -117,12 +119,16 @@ namespace amnezia
         }
         const int healthAttempts = std::max(
                 1, spec.healthCheck.startPeriodSeconds + spec.healthCheck.intervalSeconds * spec.healthCheck.retries);
+        const auto runtimeSpec = makeAgentWorkloadDeploymentSpec(OpenClawCodexProtocolConfig {});
+        const int runtimeHealthAttempts = runtimeSpec->healthCheck.startPeriodSeconds
+                + runtimeSpec->healthCheck.intervalSeconds * runtimeSpec->healthCheck.retries;
 
         const QMap<QString, QString> replacements {
             { QStringLiteral("@@ACTION@@"), shellQuote(renderedAction) },
             { QStringLiteral("@@CONTAINER_NAME@@"), shellQuote(spec.containerName) },
             { QStringLiteral("@@ENV_ARGS@@"), environmentArguments(spec.environment) },
             { QStringLiteral("@@HEALTH_ATTEMPTS@@"), QString::number(healthAttempts) },
+            { QStringLiteral("@@RUNTIME_HEALTH_ATTEMPTS@@"), QString::number(runtimeHealthAttempts) },
             { QStringLiteral("@@HEALTH_INTERVAL@@"),
               shellQuote(QString::number(spec.healthCheck.intervalSeconds) + QStringLiteral("s")) },
             { QStringLiteral("@@HEALTH_RETRIES@@"), shellQuote(QString::number(spec.healthCheck.retries)) },
@@ -161,13 +167,22 @@ namespace amnezia
             { QStringLiteral("@@WORKLOAD@@"), shellQuote(spec.workload) },
         };
 
-        for (auto it = replacements.cbegin(); it != replacements.cend(); ++it) {
-            script.replace(it.key(), it.value());
+        const QRegularExpression placeholder(QStringLiteral("@@[A-Z_]+@@"));
+        auto matches = placeholder.globalMatch(script);
+        QString rendered;
+        qsizetype offset = 0;
+        while (matches.hasNext()) {
+            const auto match = matches.next();
+            if (!replacements.contains(match.captured())) {
+                setError(error, AgentWorkloadApplyRenderError::UnresolvedPlaceholder);
+                return std::nullopt;
+            }
+            rendered += script.mid(offset, match.capturedStart() - offset);
+            rendered += replacements.value(match.captured());
+            offset = match.capturedEnd();
         }
-        if (script.contains(QRegularExpression(QStringLiteral("@@[A-Z_]+@@")))) {
-            setError(error, AgentWorkloadApplyRenderError::UnresolvedPlaceholder);
-            return std::nullopt;
-        }
+        rendered += script.mid(offset);
+        script = rendered;
 
         setError(error, AgentWorkloadApplyRenderError::None);
         return script;

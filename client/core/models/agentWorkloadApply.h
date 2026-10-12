@@ -77,6 +77,7 @@ namespace amnezia
         CommandFailed,
         PostMutationObservationFailed,
         PostMutationMismatch,
+        CleanupUnconfirmed,
     };
 
     struct AgentWorkloadLifecycleResult

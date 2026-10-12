@@ -9,6 +9,13 @@ set(_common_root "${CMAKE_CURRENT_LIST_DIR}/../../../common")
 
 add_executable(${SELFHOSTED_INSTALL_CONTROLLER_TEST_TARGET}
     install_controller_test.cpp
+    ${_client_root}/core/repositories/secureServersRepository.cpp
+    ${_client_root}/core/repositories/secureServersRepository.h
+    ${_client_root}/core/models/selfhosted/selfHostedUserServerConfig.cpp
+    ${_client_root}/core/models/selfhosted/nativeServerConfig.cpp
+    ${_client_root}/core/models/api/apiV2ServerConfig.cpp
+    ${_client_root}/core/models/api/legacyApiServerConfig.cpp
+    ${_client_root}/core/utils/serverConfigUtils.cpp
     ${_client_root}/core/repositories/secureAppSettingsRepository.cpp
     ${_client_root}/core/repositories/secureAppSettingsRepository.h
     ${_client_root}/secureQSettings.cpp
@@ -48,6 +55,7 @@ add_executable(${SELFHOSTED_INSTALL_CONTROLLER_TEST_TARGET}
     ${_client_root}/core/utils/utilities.cpp
     ${_client_root}/core/models/containerConfig.cpp
     ${_client_root}/core/models/agentWorkloadApply.cpp
+    ${_client_root}/core/models/agentWorkloadLinks.cpp
     ${_client_root}/core/models/agentWorkloadLogin.cpp
     ${_client_root}/core/models/selfhosted/selfHostedAdminServerConfig.cpp
     ${_client_root}/core/models/agentWorkloadDeploymentSpec.cpp
@@ -72,6 +80,8 @@ add_executable(${SELFHOSTED_INSTALL_CONTROLLER_TEST_TARGET}
 target_compile_features(${SELFHOSTED_INSTALL_CONTROLLER_TEST_TARGET} PRIVATE cxx_std_17)
 target_compile_definitions(${SELFHOSTED_INSTALL_CONTROLLER_TEST_TARGET} PRIVATE
     DEV_AGW_ENDPOINT="https://gateway.example.invalid"
+    FREE_V2_ENDPOINT="https://free.example.invalid"
+    PREM_V1_ENDPOINT="https://premium.example.invalid"
 )
 
 if(WIN32)

@@ -9,6 +9,11 @@
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QUrl>
+#include <QSet>
+
+#include <openssl/ec.h>
+#include <openssl/obj_mac.h>
+#include <memory>
 
 #include <algorithm>
 #include <tuple>
@@ -78,10 +83,91 @@ namespace amnezia
             return url.toString(QUrl::FullyEncoded);
         }
 
+        // QJsonDocument accepts duplicate members. Reject them before consulting its object view.
+        bool uniqueJsonMembers(const QByteArray &data)
+        {
+            QList<QSet<QString>> objects;
+            for (qsizetype i = 0; i < data.size(); ++i) {
+                if (data[i] == '{') objects.append(QSet<QString> {});
+                else if (data[i] == '}') objects.removeLast();
+                else if (data[i] == '"') {
+                    const qsizetype start = i++;
+                    while (i < data.size() && data[i] != '"') {
+                        if (data[i] == '\\') ++i;
+                        ++i;
+                    }
+                    qsizetype next = i + 1;
+                    while (next < data.size() && QByteArray(" \r\n\t").contains(data[next])) ++next;
+                    if (next < data.size() && data[next] == ':') {
+                        const auto key = QJsonDocument::fromJson("[" + data.mid(start, i - start + 1) + "]")
+                                                 .array().first().toString();
+                        if (objects.isEmpty() || objects.last().contains(key)) return false;
+                        if (objects.size() == 1 && key == QStringLiteral("schema_version")) {
+                            qsizetype valueStart = next + 1;
+                            while (valueStart < data.size() && QByteArray(" \r\n\t").contains(data[valueStart])) ++valueStart;
+                            if (valueStart + 1 >= data.size() || data[valueStart] != '1'
+                                || !QByteArray(" ,}\r\n\t").contains(data[valueStart + 1])) return false;
+                        }
+                        objects.last().insert(key);
+                    }
+                }
+            }
+            return objects.isEmpty();
+        }
+
+        bool publicP256Point(const QString &x, const QString &y)
+        {
+            auto coordinate = [](const QString &value) {
+                const QByteArray encoded = value.toLatin1();
+                const auto decoded = QByteArray::fromBase64(encoded, QByteArray::Base64UrlEncoding);
+                return decoded.size() == 32
+                        && decoded.toBase64(QByteArray::Base64UrlEncoding | QByteArray::OmitTrailingEquals) == encoded
+                        ? decoded : QByteArray {};
+            };
+            const auto xb = coordinate(x), yb = coordinate(y);
+            if (xb.isEmpty() || yb.isEmpty()) return false;
+            std::unique_ptr<EC_GROUP, decltype(&EC_GROUP_free)> group(EC_GROUP_new_by_curve_name(NID_X9_62_prime256v1), EC_GROUP_free);
+            if (!group) return false;
+            std::unique_ptr<EC_POINT, decltype(&EC_POINT_free)> point(EC_POINT_new(group.get()), EC_POINT_free);
+            const QByteArray octets = QByteArray(1, '\x04') + xb + yb;
+            return point && EC_POINT_oct2point(group.get(), point.get(),
+                       reinterpret_cast<const unsigned char *>(octets.constData()), octets.size(), nullptr) == 1
+                    && EC_POINT_is_on_curve(group.get(), point.get(), nullptr) == 1
+                    && EC_POINT_is_at_infinity(group.get(), point.get()) == 0;
+        }
+
+        bool validPublicTrust(const QString &bundle, const QString &issuer)
+        {
+            if (bundle.size() > 16 * 1024) return false;
+            const QByteArray bytes = bundle.toUtf8();
+            if (bytes.isEmpty() || bytes.size() > 16 * 1024 || bytes.startsWith("\xef\xbb\xbf") || bundle.contains(QChar(0))
+                || QString::fromUtf8(bytes) != bundle) return false;
+            const auto doc = QJsonDocument::fromJson(bytes);
+            if (!doc.isObject() || !uniqueJsonMembers(bytes)) return false;
+            const auto object = doc.object();
+            if (object.size() != 3 || object.value("schema_version") != QJsonValue(1)
+                || object.value("issuer") != QJsonValue(issuer) || !object.value("keys").isArray()) return false;
+            const auto keys = object.value("keys").toArray();
+            if (keys.isEmpty() || keys.size() > 8) return false;
+            QSet<QString> kids;
+            for (const auto &entry : keys) {
+                if (!entry.isObject()) return false;
+                const auto key = entry.toObject();
+                if (key.size() != 7 || key.value("kty") != QJsonValue("EC") || key.value("crv") != QJsonValue("P-256")
+                    || key.value("use") != QJsonValue("sig") || key.value("alg") != QJsonValue("ES256")
+                    || !key.value("kid").isString() || !key.value("x").isString() || !key.value("y").isString()) return false;
+                const QString kid = key.value("kid").toString();
+                if (kid.isEmpty() || kid.toUtf8().size() > 128 || kids.contains(kid)
+                    || !publicP256Point(key.value("x").toString(), key.value("y").toString())) return false;
+                kids.insert(kid);
+            }
+            return true;
+        }
+
         std::optional<AgentBackendProfile> normalizedProfile(const AgentBackendProfile &profile,
                                                              AgentDeploymentValidationError *error)
         {
-            if (profile.authIssuer.isEmpty() || profile.routerBaseUrl.isEmpty()) {
+            if (profile.authIssuer.isEmpty() || profile.routerBaseUrl.isEmpty() || profile.runtimeGatewayBaseUrl.isEmpty()) {
                 setError(error, AgentDeploymentValidationError::MissingBackendProfile);
                 return std::nullopt;
             }
@@ -101,8 +187,33 @@ namespace amnezia
                 return std::nullopt;
             }
 
+            const auto runtime = normalizedHttpsUrl(profile.runtimeGatewayBaseUrl, false,
+                                                    AgentDeploymentValidationError::InvalidRuntimeGatewayBaseUrl, error);
+            if (!runtime) {
+                return std::nullopt;
+            }
+            QString runtimePath = QUrl(*runtime).path();
+            while (runtimePath.endsWith(QLatin1Char('/'))) {
+                runtimePath.chop(1);
+            }
+            if (runtimePath.endsWith(QStringLiteral("/v1"))) {
+                setError(error, AgentDeploymentValidationError::InvalidRuntimeGatewayBaseUrl);
+                return std::nullopt;
+            }
+
+            if (!validPublicTrust(profile.ingressTrustBundle, *issuer)) {
+                setError(error, AgentDeploymentValidationError::InvalidTrustBundle);
+                return std::nullopt;
+            }
+            const auto pin = profile.ingressTrustSha256;
+            static const QRegularExpression hexPin(QStringLiteral("^[0-9a-fA-F]{64}$"));
+            if (!hexPin.match(pin).hasMatch()
+                || pin.toLower().toLatin1() != QCryptographicHash::hash(profile.ingressTrustBundle.toUtf8(), QCryptographicHash::Sha256).toHex()) {
+                setError(error, AgentDeploymentValidationError::InvalidTrustPin);
+                return std::nullopt;
+            }
             setError(error, AgentDeploymentValidationError::None);
-            return AgentBackendProfile { profile.id, *issuer, *router };
+            return AgentBackendProfile { profile.id, *issuer, *router, *runtime, profile.ingressTrustBundle, pin.toLower() };
         }
 
         QByteArray quotedJsonString(const QString &value)
@@ -162,12 +273,13 @@ namespace amnezia
 
             QList<AgentWorkloadVolume> volumes = spec.volumes;
             std::sort(volumes.begin(), volumes.end(), [](const auto &left, const auto &right) {
-                return std::tie(left.name, left.target) < std::tie(right.name, right.target);
+                return std::tie(left.name, left.target, left.readOnly) < std::tie(right.name, right.target, right.readOnly);
             });
             QJsonArray volumeArray;
             for (const AgentWorkloadVolume &volume : volumes) {
                 volumeArray.append(QJsonObject { { QStringLiteral("name"), volume.name },
-                                                 { QStringLiteral("target"), volume.target } });
+                                                 { QStringLiteral("target"), volume.target },
+                                                 { QStringLiteral("read_only"), volume.readOnly } });
             }
 
             QJsonObject healthCheck {
@@ -203,7 +315,9 @@ namespace amnezia
                 object.insert(QStringLiteral("backend_profile"),
                               QJsonObject { { QStringLiteral("auth_issuer"), spec.backendProfile->authIssuer },
                                             { QStringLiteral("id"), spec.backendProfile->id },
-                                            { QStringLiteral("router_base_url"), spec.backendProfile->routerBaseUrl } });
+                                            { QStringLiteral("router_base_url"), spec.backendProfile->routerBaseUrl },
+                                            { QStringLiteral("runtime_gateway_base_url"),
+                                              spec.backendProfile->runtimeGatewayBaseUrl } });
             }
             return object;
         }
@@ -261,6 +375,7 @@ namespace amnezia
             variables.insert(QStringLiteral("$AGENT_BACKEND_PROFILE"), backendProfile->id);
             variables.insert(QStringLiteral("$AMGPT_AUTH_ISSUER"), backendProfile->authIssuer);
             variables.insert(QStringLiteral("$AMGPT_ROUTER_BASE_URL"), backendProfile->routerBaseUrl);
+            variables.insert(QStringLiteral("$AMGPT_RUNTIME_GATEWAY_BASE_URL"), backendProfile->runtimeGatewayBaseUrl);
         }
         return variables;
     }
@@ -281,7 +396,9 @@ namespace amnezia
     std::optional<AgentWorkloadDeploymentSpec> makeAgentWorkloadDeploymentSpec(const AmgptAuthProxyProtocolConfig &config,
                                                                                AgentDeploymentValidationError *error)
     {
-        const auto profile = normalizedProfile({ config.backendProfile, config.authIssuer, config.routerBaseUrl }, error);
+        const auto profile = normalizedProfile(
+                { config.backendProfile, config.authIssuer, config.routerBaseUrl, config.runtimeGatewayBaseUrl,
+                  config.ingressTrustBundle, config.ingressTrustSha256 }, error);
         if (!profile) {
             return std::nullopt;
         }
@@ -294,11 +411,12 @@ namespace amnezia
         spec.networkAlias = QStringLiteral("amgpt-device-gateway");
         spec.environment = {
             { QStringLiteral("AMGPT_AUTH_ISSUER"), profile->authIssuer },
-            { QStringLiteral("AMGPT_CODEX_APP_SOCKET"),
-              QString::fromLatin1(CodexAppSocketDirectory) + QStringLiteral("/app-server.sock") },
             { QStringLiteral("AMGPT_DEVICE_GATEWAY_STATE_DIR"), QStringLiteral("/var/lib/amgpt-device-gateway") },
+            { QStringLiteral("AMGPT_INGRESS_TRUST_BUNDLE"), profile->ingressTrustBundle },
+            { QStringLiteral("AMGPT_INGRESS_TRUST_SHA256"), profile->ingressTrustSha256 },
             { QStringLiteral("AMGPT_INGRESS_STATE_DIR"), QStringLiteral("/var/lib/amgpt-device-gateway/ingress") },
             { QStringLiteral("AMGPT_ROUTER_BASE_URL"), profile->routerBaseUrl },
+            { QStringLiteral("AMGPT_RUNTIME_GATEWAY_BASE_URL"), profile->runtimeGatewayBaseUrl },
         };
         spec.volumes = {
             { QStringLiteral("amnezia-amgpt-device-gateway-state"),
@@ -319,25 +437,22 @@ namespace amnezia
     std::optional<AgentWorkloadDeploymentSpec> makeAgentWorkloadDeploymentSpec(const OpenClawCodexProtocolConfig &,
                                                                                AgentDeploymentValidationError *error)
     {
-        // The supervised runtime publishes no port. The image owns HOME, CODEX_HOME and OpenClaw paths
-        // for its separate service identities, and its user must not be overridden.
+        // The native image owns its user, command and gateway-published digest reader (ADR-017).
+        // Retain legacy deployment identities for saved configurations and guard_owner.
         AgentWorkloadDeploymentSpec spec = commonSpec();
         spec.workload = QStringLiteral("openclaw-codex");
         spec.imageReference = QString::fromLatin1(OpenClawImage);
         spec.containerName = QStringLiteral("amnezia-openclaw-codex");
+        spec.networkAlias = QStringLiteral("codex-app-server");
         spec.volumes = {
-            { QStringLiteral("amnezia-agent-runtime-openclaw-state"), QStringLiteral("/home/openclaw/.openclaw") },
-            { QStringLiteral("amnezia-agent-runtime-workspace"), QStringLiteral("/workspace") },
             { QStringLiteral("amnezia-agent-runtime-codex-home"), QStringLiteral("/home/codex/.codex") },
             { QStringLiteral("amnezia-agent-runtime-codex-workspace"), QStringLiteral("/codex-workspace") },
-            { QString::fromLatin1(CodexAppSocketVolume), QString::fromLatin1(CodexAppSocketDirectory) },
+            { QString::fromLatin1(CodexAppSocketVolume), QString::fromLatin1(CodexAppSocketDirectory), true },
         };
         spec.tmpfs = { QStringLiteral("/tmp:rw,noexec,nosuid,nodev") };
-        // The root supervisor needs only these to start services under their own identities and signal them.
-        spec.capabilitiesAdded = { QStringLiteral("SETUID"), QStringLiteral("SETGID"), QStringLiteral("KILL") };
         spec.healthCheck = {
-            { QStringLiteral("node"), QStringLiteral("/opt/workload/bin/runtimectl.mjs"),
-              QStringLiteral("healthcheck") },
+            { QStringLiteral("node"), QStringLiteral("-e"),
+              QStringLiteral("fetch('http://127.0.0.1:4500/readyz').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))") },
             10,
             5,
             3,
@@ -363,6 +478,9 @@ namespace amnezia
             config.backendProfile = spec.backendProfile->id;
             config.authIssuer = spec.backendProfile->authIssuer;
             config.routerBaseUrl = spec.backendProfile->routerBaseUrl;
+            config.runtimeGatewayBaseUrl = spec.backendProfile->runtimeGatewayBaseUrl;
+            config.ingressTrustBundle = spec.backendProfile->ingressTrustBundle;
+            config.ingressTrustSha256 = spec.backendProfile->ingressTrustSha256;
             expected = makeAgentWorkloadDeploymentSpec(config, &error);
         } else if (spec.workload == QStringLiteral("openclaw-codex")) {
             if (spec.backendProfile) {

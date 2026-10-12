@@ -37,14 +37,16 @@ workload. A specification includes:
 - an optional resolved backend profile.
 
 `amgpt-device-gateway` receives one resolved `AgentBackendProfile` containing its
-profile identifier, Auth issuer and Router `/v1` base URL. All three values are
-persisted together in `AmgptAuthProxyProtocolConfig`. Profile resolution
+profile identifier, Auth issuer, Router `/v1` base URL and Runtime Gateway
+service base URL. These values are persisted together in
+`AmgptAuthProxyProtocolConfig`. Profile resolution
 validates and normalizes the entire tuple before producing a desired state.
 Missing values, unsupported environments, invalid identifiers, non-HTTPS
 coordinates, user information, query strings, fragments, and an invalid Router
-path are rejected.
+path or a Runtime Gateway base ending in `/v1` are rejected.
 
-`openclaw-codex` has no backend profile, no Auth or Router environment values,
+`openclaw-codex` has no backend profile, no Auth, Router or Runtime Gateway
+environment values,
 and no backend-profile deployment label. A profile change therefore cannot
 change its desired-state hash or require its recreation. Any runtime
 connection between workloads is runtime configuration on their shared Docker
@@ -147,16 +149,21 @@ container. A missing target is an idempotent no-op; an unmanaged exact-name
 target is a conflict. Removal preserves named volumes, the shared network, the
 sibling workload, and unrelated Docker resources.
 
-The client resolves the Device Gateway's production or development backend as one
-atomic profile from its existing environment selection. The resolved profile
-is persisted with the container configuration and shown read-only; Auth and
-Router coordinates are not independently editable. A later environment change
-does not mutate the host in the background. It becomes desired-state drift and
-is applied only when the user explicitly requests reconciliation.
+The client resolves the Device Gateway's local or shared development backend as one
+atomic profile from its existing environment selection. GH-10 extends that
+profile to include the independent Runtime Gateway coordinate for both local
+and dev. Device Gateway owns automatic check-in after device login and Codex
+readiness; the client owns only validated deployment input. The resolved
+profile is persisted with the container configuration and shown read-only.
+Global environment changes affect new installations; existing installations
+retain their saved profile. Switching an installed backend requires an explicit
+new installation, not a background host mutation.
 
 Immutable digest-qualified image coordinates are the deployment identity agreed
 with `agent-workloads`. Moving `latest` or development tags are not acceptable
-fallbacks. See ADR-0003 for the Device Gateway contract migration.
+fallbacks for a release. Current pre-release local/dev work uses both `dev`
+channels by explicit owner direction; GH-10 preserves that development policy.
+See ADR-0003 for the Device Gateway contract migration.
 
 ## Alternatives considered
 

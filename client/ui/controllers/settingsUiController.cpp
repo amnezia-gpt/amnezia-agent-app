@@ -1,6 +1,7 @@
 #include "settingsUiController.h"
 
 #include <QDebug>
+#include <QClipboard>
 #include <QStandardPaths>
 #include <QOperatingSystemVersion>
 #include <QFile>
@@ -342,9 +343,18 @@ QVariantMap SettingsUiController::localAgentBackendProfile()
     return m_settingsController->localAgentBackendProfile();
 }
 
-bool SettingsUiController::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl)
+QString SettingsUiController::publicTrustBundleFromClipboard()
 {
-    if (!m_settingsController->saveLocalAgentBackendProfile(authIssuer, routerBaseUrl)) return false;
+    const auto clipboard = amnApp->getClipboard();
+    const QString text = clipboard ? clipboard->text() : QString();
+    return text.toUtf8().size() <= 16 * 1024 ? text : QString();
+}
+
+bool SettingsUiController::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
+                                                        const QString &runtimeGatewayBaseUrl,
+                                      const QString &ingressTrustBundle, const QString &ingressTrustSha256)
+{
+    if (!m_settingsController->saveLocalAgentBackendProfile(authIssuer, routerBaseUrl, runtimeGatewayBaseUrl, ingressTrustBundle, ingressTrustSha256)) return false;
     emit localAgentBackendProfileChanged();
     return true;
 }

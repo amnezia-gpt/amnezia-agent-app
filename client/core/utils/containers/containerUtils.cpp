@@ -89,7 +89,7 @@ QMap<DockerContainer, QString> ContainerUtils::containerHumanNames()
         { DockerContainer::MtProxy, QObject::tr("MTProxy (Telegram)") },
         { DockerContainer::Telemt, QObject::tr("Telemt (Telegram)") },
         { DockerContainer::AmgptAuthProxy, QObject::tr("AMGPT Device Gateway") },
-        { DockerContainer::OpenClawCodex, QObject::tr("OpenClaw + Codex") },
+        { DockerContainer::OpenClawCodex, QObject::tr("Codex") },
     };
 }
 
@@ -128,7 +128,7 @@ QMap<DockerContainer, QString> ContainerUtils::containerDescriptions()
         { DockerContainer::Telemt, QObject::tr("Telegram MTProto proxy (Telemt, Rust)") },
         { DockerContainer::AmgptAuthProxy,
           QObject::tr("Device identity and authorization gateway for Amnezia GPT agent workloads.") },
-        { DockerContainer::OpenClawCodex, QObject::tr("Self-hosted OpenClaw runtime with Codex support.") },
+        { DockerContainer::OpenClawCodex, QObject::tr("Self-hosted Codex App Server.") },
     };
 }
 
@@ -221,9 +221,9 @@ QMap<DockerContainer, QString> ContainerUtils::containerDetailedDescriptions()
                       "Supports secure and TLS fronting modes with optional traffic masking.") },
         { DockerContainer::AmgptAuthProxy,
           QObject::tr("Deploys the AMGPT Device Gateway used for device authorization and compatible agent workloads. "
-                      "It is installed and managed independently from the OpenClaw workload.") },
+                      "It is installed and managed independently from the Codex workload.") },
         { DockerContainer::OpenClawCodex,
-          QObject::tr("Deploys a self-hosted OpenClaw runtime with Codex support. "
+          QObject::tr("Deploys a self-hosted Codex App Server. "
                       "Authorization is configured separately after installation.") },
     };
 }

@@ -2,7 +2,9 @@
 
 ## Status
 
-Accepted
+Superseded for runtime supervision and socket transport by
+[ADR-0007](0007-gateway-owned-codex-capability.md). The no-host-port policy remains
+accepted. The following records the earlier GH-20 deployment contract.
 
 ## Context
 
@@ -48,9 +50,10 @@ lets anyone who reaches the host spend the owner's compute.
 - Capabilities added to a container are part of the canonical specification
   and its hash, so a changed capability set is declaration drift.
 - The port-publication and host-port conflict machinery is kept for a
-  specification that publishes a port. The optional WebUI TLS ingress listener
-  (trust bundle, certificate, key and one published port) is separate future
-  work.
+  specification that publishes a port. Broker mode requires the public signer
+  bundle and pin independently of any listener. Its delivery is defined in
+  [ADR-0005](0005-profile-owned-broker-trust.md). Certificates, device TLS keys
+  and published ports remain excluded from broker mode.
 
 ## Consequences
 

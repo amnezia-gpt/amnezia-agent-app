@@ -96,6 +96,8 @@ QString reconciliationReasonMessage(AgentWorkloadReconciliationReason reason)
         return QObject::tr("Workload needs repair or update");
     case AgentWorkloadReconciliationReason::ContainerOwnedByOther:
         return QObject::tr("The container name is used by an unmanaged deployment");
+    case AgentWorkloadReconciliationReason::BackendEnvironmentMismatch:
+        return QObject::tr("Backend environment or Auth issuer differs; install a new device for that backend");
     case AgentWorkloadReconciliationReason::HostPortInUse:
         return QObject::tr("The selected host port is already in use");
     case AgentWorkloadReconciliationReason::ContainerUnhealthy:
@@ -178,6 +180,8 @@ QString reconciliationReasonMessage(AgentWorkloadReconciliationReason reason)
             return QObject::tr("Device Gateway returned an invalid sign-in response");
         case AgentWorkloadLoginOperationError::RemoteFailure:
             return QObject::tr("The sign-in provider rejected the request");
+        case AgentWorkloadLoginOperationError::IngressEnrollmentFailed:
+            return QObject::tr("Signed in, but device access setup failed. Refresh sign-in status to retry");
         }
         return QObject::tr("Unable to start sign-in");
     }
@@ -572,7 +576,12 @@ void InstallUiController::reconcileAgentWorkload(const QString &serverId, int co
         emit agentWorkloadReconcileFinished(
                 static_cast<int>(result.plan.action), static_cast<int>(result.plan.reason),
                 static_cast<int>(result.applyResult.status), static_cast<int>(result.applyResult.reason),
-                static_cast<int>(result.applyResult.transportError), applyResultMessage(result.applyResult));
+                static_cast<int>(result.applyResult.transportError),
+                result.validationError == AgentDeploymentValidationError::BackendEnvironmentChanged
+                        ? tr("The selected backend environment or Auth issuer differs from this installation. Install a new device for that backend.")
+                        : result.validationError != AgentDeploymentValidationError::None
+                                ? tr("The backend profile is incomplete or invalid. Check its endpoints, public signing bundle and SHA-256.")
+                                : applyResultMessage(result.applyResult));
     });
     watcher->setFuture(QtConcurrent::run(
             [controller, serverId, container] { return controller->reconcileAgentWorkload(serverId, container); }));
@@ -652,6 +661,39 @@ void InstallUiController::refreshAgentWorkloadLoginStatus(const QString &serverI
     });
     watcher->setFuture(QtConcurrent::run(
             [controller, serverId, mode] { return controller->queryAgentWorkloadLoginStatus(serverId, mode); }));
+}
+
+void InstallUiController::refreshAgentWorkloadLinks(const QString &serverId)
+{
+    readAgentWorkloadLinks(serverId, false);
+}
+
+void InstallUiController::openAgentWorkloadWebInterface(const QString &serverId)
+{
+    readAgentWorkloadLinks(serverId, true);
+}
+
+void InstallUiController::readAgentWorkloadLinks(const QString &serverId, bool openBrowser)
+{
+    emit serverIsBusy(true);
+    auto *watcher = new QFutureWatcher<AgentWorkloadLinksResult>(this);
+    connect(watcher, &QFutureWatcher<AgentWorkloadLinksResult>::finished, this, [this, watcher, serverId, openBrowser] {
+        const auto result = watcher->result();
+        watcher->deleteLater();
+        const bool available = result.error == AgentWorkloadLinksError::None
+                && result.webUi
+                && isSafeAgentWorkloadWebUiHref(*result.webUi);
+        emit serverIsBusy(false);
+        // Only the transient result owns href. QML receives availability, never an address to cache.
+        emit agentWorkloadLinksRefreshed(serverId, available);
+        if (openBrowser) {
+            const bool opened = available && QDesktopServices::openUrl(QUrl(*result.webUi, QUrl::StrictMode));
+            emit agentWorkloadWebInterfaceOpened(serverId, opened,
+                    opened ? QString() : tr("The web interface is unavailable or the browser could not be opened."));
+        }
+    });
+    auto *controller = m_installController;
+    watcher->setFuture(QtConcurrent::run([controller, serverId] { return controller->queryAgentWorkloadLinks(serverId); }));
 }
 
 bool InstallUiController::openAgentWorkloadVerificationUrl(const QString &url)
@@ -751,7 +793,8 @@ void InstallUiController::removeContainer(const QString &serverId, int container
     DockerContainer container = static_cast<DockerContainer>(containerIndex);
     QString containerName = ContainerUtils::containerHumanNames().value(container);
 
-    const bool asyncRemove = container == DockerContainer::Xray || container == DockerContainer::SSXray;
+    const bool asyncRemove = container == DockerContainer::Xray || container == DockerContainer::SSXray
+            || isAgentWorkloadContainer(container);
 
     if (asyncRemove) {
         emit serverIsBusy(true);

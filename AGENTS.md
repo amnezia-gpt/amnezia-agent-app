@@ -19,6 +19,17 @@ browser-mediated authorization proof of concept described in
    characterization tests before refactoring untested legacy behavior.
 5. Invoke every repo-local skill whose description matches the work.
 6. Preserve unrelated user changes and never overwrite a dirty worktree.
+7. For SSH test prompts or live OpenClaw/Codex output, read
+   [`docs/sdlc/agent-workloads-interactive-smoke.md`](docs/sdlc/agent-workloads-interactive-smoke.md)
+   first and give the ready commands immediately. Do not repeat CLI, container,
+   or documentation discovery unless those commands fail or runtime versions change.
+   Never add operator-specific connection details or host-specific evidence to
+   the public runbook; it contains only the generic workload contract.
+   Default to one-shot SSH commands that stream output and disconnect on
+   completion. Give copy/paste SSH commands on one physical line with balanced
+   quotes. For OpenClaw use temporary TTY (`ssh -t`, `docker exec -it`) with
+   `--log-level info` and `--verbose on`; retain the same agent session ID for
+   continuation. Offer a persistent SSH shell or TUI only when explicitly requested.
 
 ## Branch and upstream model
 

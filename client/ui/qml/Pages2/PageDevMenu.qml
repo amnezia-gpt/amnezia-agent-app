@@ -130,6 +130,41 @@ PageType {
                 textField.text: SettingsController.localAgentBackendProfile.routerBaseUrl || ""
             }
 
+            TextFieldWithHeaderType {
+                id: localRuntimeField
+                visible: SettingsController.agentWorkloadEnvironment === "local"
+                Layout.fillWidth: true
+                Layout.margins: 16
+                headerText: qsTr("Local Runtime Gateway base URL (HTTPS, without /v1)")
+                textField.text: SettingsController.localAgentBackendProfile.runtimeGatewayBaseUrl || ""
+            }
+
+            ParagraphTextType {
+                visible: SettingsController.agentWorkloadEnvironment === "local"
+                Layout.fillWidth: true
+                Layout.margins: 16
+                text: qsTr("Local public signing bundle (paste the exact export, including its final newline)")
+            }
+
+            PublicTrustBundleInput {
+                id: localTrustInput
+                visible: SettingsController.agentWorkloadEnvironment === "local"
+                Layout.fillWidth: true
+                Layout.leftMargin: 16
+                Layout.rightMargin: 16
+                bundle: SettingsController.localAgentBackendProfile.ingressTrustBundle || ""
+                onPasteRequested: bundle = SettingsController.publicTrustBundleFromClipboard()
+            }
+
+            TextFieldWithHeaderType {
+                id: localTrustPinField
+                visible: SettingsController.agentWorkloadEnvironment === "local"
+                Layout.fillWidth: true
+                Layout.margins: 16
+                headerText: qsTr("Public signing bundle SHA-256")
+                textField.text: SettingsController.localAgentBackendProfile.ingressTrustSha256 || ""
+            }
+
             BasicButtonType {
                 visible: SettingsController.agentWorkloadEnvironment === "local"
                 Layout.fillWidth: true
@@ -137,8 +172,11 @@ PageType {
                 text: qsTr("Save local backend")
                 clickedFunc: function() {
                     if (!SettingsController.saveLocalAgentBackendProfile(localAuthField.textField.text,
-                                                                         localRouterField.textField.text)) {
-                        PageController.showNotificationMessage(qsTr("Enter both valid HTTPS endpoints without credentials, query or fragment; Router must end in /v1."))
+                                                                         localRouterField.textField.text,
+                                                                         localRuntimeField.textField.text,
+                                                                         localTrustInput.bundle,
+                                                                         localTrustPinField.textField.text)) {
+                        PageController.showNotificationMessage(qsTr("Enter three valid HTTPS endpoints and a public P-256 signing bundle matching the Auth issuer and SHA-256. Router must end in /v1; Runtime Gateway must not."))
                         return
                     }
                     PageController.showNotificationMessage(qsTr("Settings saved"))

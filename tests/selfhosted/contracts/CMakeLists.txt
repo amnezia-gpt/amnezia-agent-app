@@ -20,6 +20,7 @@ add_executable(${CONTRACT_TEST_TARGET}
     ${_client_root}/core/utils/selfhosted/scriptsRegistry.cpp
     ${_client_root}/core/utils/utilities.cpp
     ${_client_root}/core/models/containerConfig.cpp
+    ${_client_root}/core/models/agentWorkloadLinks.cpp
     ${_client_root}/core/models/agentWorkloadDeploymentSpec.cpp
     ${_client_root}/core/models/protocolConfig.cpp
     ${_client_root}/core/models/protocols/awgProtocolConfig.cpp
@@ -89,6 +90,7 @@ amnezia_add_qt_test(
         ${_client_root}/core/models/protocols/amgptAuthProxyProtocolConfig.cpp
         ${_client_root}/core/models/protocols/openClawCodexProtocolConfig.cpp
     LABELS contract
+    LIBRARIES OpenSSL::Crypto
     INCLUDE_DIRECTORIES ${_client_root}
     TIMEOUT 30
 )
@@ -102,6 +104,7 @@ amnezia_add_qt_test(
         ${_client_root}/core/models/protocols/amgptAuthProxyProtocolConfig.cpp
         ${_client_root}/core/models/protocols/openClawCodexProtocolConfig.cpp
     LABELS contract
+    LIBRARIES OpenSSL::Crypto
     INCLUDE_DIRECTORIES ${_client_root}
     TIMEOUT 30
 )
@@ -116,6 +119,18 @@ amnezia_add_qt_test(
         ${_client_root}/core/models/protocols/amgptAuthProxyProtocolConfig.cpp
         ${_client_root}/core/models/protocols/openClawCodexProtocolConfig.cpp
     LABELS contract
+    LIBRARIES OpenSSL::Crypto
+    INCLUDE_DIRECTORIES ${_client_root}
+    TIMEOUT 30
+)
+
+amnezia_add_qt_test(
+    NAME selfhosted_agent_workload_links_test
+    SOURCES
+        agent_workload_links_test.cpp
+        ${_client_root}/core/models/agentWorkloadLinks.cpp
+    LABELS contract
+    LIBRARIES Qt6::Network
     INCLUDE_DIRECTORIES ${_client_root}
     TIMEOUT 30
 )

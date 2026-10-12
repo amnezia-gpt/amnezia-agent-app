@@ -8,6 +8,8 @@
 #include "core/models/protocols/amgptAuthProxyProtocolConfig.h"
 #include "core/models/protocols/openClawCodexProtocolConfig.h"
 
+#include "../public_trust_fixture.h"
+
 using namespace amnezia;
 
 namespace
@@ -21,7 +23,8 @@ namespace
         config.routerBaseUrl = profile == QStringLiteral("development")
                 ? QStringLiteral("https://router-dev.example.com/v1")
                 : QStringLiteral("https://router.example.com/v1");
-        const auto spec = makeAgentWorkloadDeploymentSpec(config);
+        config.runtimeGatewayBaseUrl = QStringLiteral("https://runtime.example.com");
+        const auto spec = makeAgentWorkloadDeploymentSpec(withPublicTrust(config));
         Q_ASSERT(spec);
         return *spec;
     }
@@ -49,7 +52,8 @@ namespace
         for (const AgentWorkloadVolume &volume : spec.volumes) {
             mounts.append(QJsonObject { { QStringLiteral("type"), QStringLiteral("volume") },
                                         { QStringLiteral("name"), volume.name },
-                                        { QStringLiteral("destination"), volume.target } });
+                                        { QStringLiteral("destination"), volume.target },
+                                        { QStringLiteral("read_only"), volume.readOnly } });
         }
 
         QJsonObject labelObject;
@@ -85,6 +89,7 @@ namespace
                                                    { QStringLiteral("container_port"), spec.containerPort },
                                                    { QStringLiteral("protocol"), QStringLiteral("tcp") } } } },
             { QStringLiteral("labels"), labelObject },
+            { QStringLiteral("trust_environment"), observedTrustEnvironment(spec) },
         };
     }
 
@@ -115,11 +120,17 @@ class AgentWorkloadReconciliationTest final : public QObject
     Q_OBJECT
 
 private slots:
+    void trustEnvDriftOverridesMatchingLabels();
+    void trustRotationRetainsState();
+    void issuerChangeCannotReuseDeviceState();
     void missingContainerPlansCreate();
     void equivalentRunningContainerPlansNoOp();
     void dualStackPublicationMatchesWithoutHidingDrift();
     void equivalentStoppedContainerPlansStart();
     void managedDriftPlansRecreate();
+    void mountPermissionsOverrideMatchingLabels();
+    void malformedMountPermissionsAreUnknown();
+    void runtimeGatewayCoordinateDriftPlansRecreate();
     void runtimeDriftPlansRecreate();
     void unpublishedWorkloadRejectsPublishedPorts();
     void wrongOwnerPlansConflict();
@@ -129,6 +140,83 @@ private slots:
     void unhealthyAndStartingAreSafe();
     void workloadsRemainIndependent();
 };
+
+void AgentWorkloadReconciliationTest::mountPermissionsOverrideMatchingLabels()
+{
+    const auto spec = openClawSpec();
+    for (qsizetype index = 0; index < spec.volumes.size(); ++index) {
+        auto container = observedContainer(spec);
+        auto mounts = container.value("mounts").toArray();
+        auto mount = mounts.at(index).toObject();
+        mount.insert("read_only", !spec.volumes.at(index).readOnly);
+        mounts[index] = mount;
+        container.insert("mounts", mounts);
+        const auto plan = parseAndPlan(spec, envelope(spec, container));
+        QCOMPARE(plan.action, AgentWorkloadReconciliationAction::Recreate);
+        QCOMPARE(plan.reason, AgentWorkloadReconciliationReason::RuntimeConfigurationDrift);
+    }
+}
+
+void AgentWorkloadReconciliationTest::malformedMountPermissionsAreUnknown()
+{
+    const auto spec = openClawSpec();
+    for (const QJsonValue &invalid : { QJsonValue(), QJsonValue("false"), QJsonValue(0),
+                                     QJsonValue(QJsonValue::Undefined) }) {
+        auto container = observedContainer(spec);
+        auto mounts = container.value("mounts").toArray();
+        auto mount = mounts.last().toObject();
+        mount.insert("read_only", invalid);
+        mounts[mounts.size() - 1] = mount;
+        container.insert("mounts", mounts);
+        const auto observation = parseAgentWorkloadObservation(envelope(spec, container), spec);
+        QCOMPARE(observation.error, AgentWorkloadObservationError::InvalidEnvelope);
+        QCOMPARE(planAgentWorkloadReconciliation(spec, observation).action, AgentWorkloadReconciliationAction::Unknown);
+    }
+}
+
+void AgentWorkloadReconciliationTest::trustEnvDriftOverridesMatchingLabels()
+{
+    const auto spec = authProxySpec();
+    auto observed = observedContainer(spec);
+    auto missingTrust = observedTrustEnvironment(spec);
+    missingTrust.removeLast(); missingTrust.removeLast();
+    observed["trust_environment"] = missingTrust;
+    QCOMPARE(parseAndPlan(spec, envelope(spec, observed)).action, AgentWorkloadReconciliationAction::Recreate);
+    auto env = observedTrustEnvironment(spec);
+    env[3] = QString("AMGPT_INGRESS_TRUST_BUNDLE={}");
+    observed["trust_environment"] = env;
+    QCOMPARE(parseAndPlan(spec, envelope(spec, observed)).reason, AgentWorkloadReconciliationReason::RuntimeConfigurationDrift);
+    env.append("AMGPT_INGRESS_TRUST_SHA256=duplicate");
+    observed["trust_environment"] = env;
+    QCOMPARE(parseAgentWorkloadObservation(envelope(spec, observed), spec).error, AgentWorkloadObservationError::InvalidEnvelope);
+}
+
+void AgentWorkloadReconciliationTest::issuerChangeCannotReuseDeviceState()
+{
+    const auto spec = authProxySpec();
+    auto observed = observedContainer(spec);
+    auto env = observedTrustEnvironment(spec);
+    env[0] = QString("AMGPT_AUTH_ISSUER=https://foreign.example");
+    observed["trust_environment"] = env;
+    const auto plan = parseAndPlan(spec, envelope(spec, observed));
+    QCOMPARE(plan.action, AgentWorkloadReconciliationAction::Conflict);
+    QCOMPARE(plan.reason, AgentWorkloadReconciliationReason::BackendEnvironmentMismatch);
+}
+
+void AgentWorkloadReconciliationTest::trustRotationRetainsState()
+{
+    const auto installed = authProxySpec();
+    AmgptAuthProxyProtocolConfig config;
+    config.backendProfile = installed.backendProfile->id;
+    config.authIssuer = installed.backendProfile->authIssuer;
+    config.routerBaseUrl = installed.backendProfile->routerBaseUrl;
+    config.runtimeGatewayBaseUrl = installed.backendProfile->runtimeGatewayBaseUrl;
+    const auto desired = makeAgentWorkloadDeploymentSpec(withPublicTrust(config, "new-signer"));
+    QVERIFY(desired);
+    QCOMPARE(desired->volumes.first().name, installed.volumes.first().name);
+    QCOMPARE(parseAndPlan(*desired, envelope(*desired, observedContainer(installed))).action, AgentWorkloadReconciliationAction::Recreate);
+    QCOMPARE(parseAndPlan(openClawSpec(), envelope(openClawSpec(), observedContainer(openClawSpec()))).action, AgentWorkloadReconciliationAction::NoOp);
+}
 
 void AgentWorkloadReconciliationTest::missingContainerPlansCreate()
 {
@@ -202,8 +290,28 @@ void AgentWorkloadReconciliationTest::managedDriftPlansRecreate()
     labels.insert(QStringLiteral("org.amnezia.amgpt.deployment.backend-profile"), QStringLiteral("production"));
     wrongProfile.insert(QStringLiteral("labels"), labels);
     const auto profilePlan = parseAndPlan(spec, envelope(spec, wrongProfile));
-    QCOMPARE(profilePlan.action, AgentWorkloadReconciliationAction::Recreate);
-    QCOMPARE(profilePlan.reason, AgentWorkloadReconciliationReason::DeclarationDrift);
+    QCOMPARE(profilePlan.action, AgentWorkloadReconciliationAction::Conflict);
+    QCOMPARE(profilePlan.reason, AgentWorkloadReconciliationReason::BackendEnvironmentMismatch);
+}
+
+void AgentWorkloadReconciliationTest::runtimeGatewayCoordinateDriftPlansRecreate()
+{
+    const auto installed = authProxySpec();
+    AmgptAuthProxyProtocolConfig config;
+    config.backendProfile = installed.backendProfile->id;
+    config.authIssuer = installed.backendProfile->authIssuer;
+    config.routerBaseUrl = installed.backendProfile->routerBaseUrl;
+    config.runtimeGatewayBaseUrl = QStringLiteral("https://another-runtime.example.com");
+    config.ingressTrustBundle = installed.backendProfile->ingressTrustBundle;
+    config.ingressTrustSha256 = installed.backendProfile->ingressTrustSha256;
+    config.ingressTrustBundle = installed.backendProfile->ingressTrustBundle;
+    config.ingressTrustSha256 = installed.backendProfile->ingressTrustSha256;
+    const auto desired = makeAgentWorkloadDeploymentSpec(config);
+    QVERIFY(desired);
+    const auto plan = parseAndPlan(*desired, envelope(*desired, observedContainer(installed)));
+    QCOMPARE(plan.action, AgentWorkloadReconciliationAction::Recreate);
+    QCOMPARE(plan.reason, AgentWorkloadReconciliationReason::DeclarationDrift);
+    QCOMPARE(installed.volumes.at(0).name, desired->volumes.at(0).name);
 }
 
 void AgentWorkloadReconciliationTest::runtimeDriftPlansRecreate()
@@ -359,7 +467,7 @@ void AgentWorkloadReconciliationTest::workloadsRemainIndependent()
                                     { QStringLiteral("container_name"), productionProxy.containerName },
                                     { QStringLiteral("host_port"), productionProxy.hostPort } });
     QCOMPARE(parseAndPlan(productionProxy, QJsonDocument(retargeted).toJson(QJsonDocument::Compact)).action,
-             AgentWorkloadReconciliationAction::Recreate);
+             AgentWorkloadReconciliationAction::Conflict);
 
     QCOMPARE(parseAndPlan(openClaw, envelope(openClaw, observedContainer(openClaw))).action,
              AgentWorkloadReconciliationAction::NoOp);

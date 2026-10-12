@@ -25,6 +25,7 @@ set(HEADERS ${HEADERS}
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadDeploymentSpec.h
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadApply.h
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadReconciliation.h
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadLinks.h
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadLogin.h
     ${CLIENT_ROOT_DIR}/core/controllers/serversController.h
     ${CLIENT_ROOT_DIR}/core/controllers/selfhosted/usersController.h
@@ -113,6 +114,7 @@ set(SOURCES ${SOURCES}
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadDeploymentSpec.cpp
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadApply.cpp
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadReconciliation.cpp
+    ${CLIENT_ROOT_DIR}/core/models/agentWorkloadLinks.cpp
     ${CLIENT_ROOT_DIR}/core/models/agentWorkloadLogin.cpp
     ${CLIENT_ROOT_DIR}/core/controllers/serversController.cpp
     ${CLIENT_ROOT_DIR}/core/controllers/selfhosted/usersController.cpp

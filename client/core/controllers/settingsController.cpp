@@ -315,9 +315,11 @@ QVariantMap SettingsController::localAgentBackendProfile() const
     return m_appSettingsRepository->localAgentBackendProfile();
 }
 
-bool SettingsController::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl)
+bool SettingsController::saveLocalAgentBackendProfile(const QString &authIssuer, const QString &routerBaseUrl,
+                                                      const QString &runtimeGatewayBaseUrl,
+                                      const QString &ingressTrustBundle, const QString &ingressTrustSha256)
 {
-    return m_appSettingsRepository->saveLocalAgentBackendProfile(authIssuer, routerBaseUrl);
+    return m_appSettingsRepository->saveLocalAgentBackendProfile(authIssuer, routerBaseUrl, runtimeGatewayBaseUrl, ingressTrustBundle, ingressTrustSha256);
 }
 
 void SettingsController::setAgentWorkloadEnvironment(const QString &environment)

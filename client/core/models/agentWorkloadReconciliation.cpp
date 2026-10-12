@@ -103,6 +103,11 @@ namespace amnezia
                     return false;
                 }
                 mount.name = name.toString();
+                const QJsonValue readOnly = object.value(QStringLiteral("read_only"));
+                if (!readOnly.isBool()) {
+                    return false;
+                }
+                mount.readOnly = readOnly.toBool();
                 const QString identity =
                         mount.type + QLatin1Char('\n') + mount.name + QLatin1Char('\n') + mount.destination;
                 if (identities.contains(identity)) {
@@ -236,7 +241,8 @@ namespace amnezia
         {
             QSet<QString> result;
             for (const AgentWorkloadVolume &volume : desired.volumes) {
-                result.insert(QStringLiteral("volume\n") + volume.name + QLatin1Char('\n') + volume.target);
+                result.insert(QStringLiteral("volume\n") + volume.name + QLatin1Char('\n') + volume.target
+                              + QLatin1Char('\n') + (volume.readOnly ? QStringLiteral("ro") : QStringLiteral("rw")));
             }
             return result;
         }
@@ -245,7 +251,8 @@ namespace amnezia
         {
             QSet<QString> result;
             for (const auto &mount : observed.mounts) {
-                result.insert(mount.type + QLatin1Char('\n') + mount.name + QLatin1Char('\n') + mount.destination);
+                result.insert(mount.type + QLatin1Char('\n') + mount.name + QLatin1Char('\n') + mount.destination
+                              + QLatin1Char('\n') + (mount.readOnly ? QStringLiteral("ro") : QStringLiteral("rw")));
             }
             return result;
         }
@@ -272,9 +279,35 @@ namespace amnezia
             return result;
         }
 
+        bool parseTrustEnvironment(const QJsonValue &value, QMap<QString, QString> *target)
+        {
+            // Older containers have no trust fields. Missing input is drift, never proof of trust.
+            if (value.isUndefined()) return true;
+            if (!value.isArray() || value.toArray().size() > 5) return false;
+            const QSet<QString> names { "AMGPT_AUTH_ISSUER", "AMGPT_ROUTER_BASE_URL", "AMGPT_RUNTIME_GATEWAY_BASE_URL",
+                                       "AMGPT_INGRESS_TRUST_BUNDLE", "AMGPT_INGRESS_TRUST_SHA256" };
+            for (const auto &entry : value.toArray()) {
+                if (!entry.isString() || entry.toString().toUtf8().size() > 17 * 1024) return false;
+                const auto text = entry.toString();
+                const auto separator = text.indexOf('=');
+                const auto name = text.left(separator);
+                if (separator < 0 || !names.contains(name) || target->contains(name)) return false;
+                target->insert(name, text.mid(separator + 1));
+            }
+            return true;
+        }
+
         bool runtimeConfigurationMatches(const AgentWorkloadDeploymentSpec &desired,
                                          const ObservedDeploymentState &observed)
         {
+            if (desired.backendProfile) {
+                for (const QString &name : { QString("AMGPT_AUTH_ISSUER"), QString("AMGPT_ROUTER_BASE_URL"),
+                                            QString("AMGPT_RUNTIME_GATEWAY_BASE_URL"), QString("AMGPT_INGRESS_TRUST_BUNDLE"),
+                                            QString("AMGPT_INGRESS_TRUST_SHA256") }) {
+                    if (!observed.trustEnvironment.contains(name)
+                        || observed.trustEnvironment.value(name) != desired.environment.value(name)) return false;
+                }
+            }
             if (observed.restartPolicy != desired.restartPolicy || observedMounts(observed) != desiredMounts(desired)
                 || observedTmpfs(observed) != desiredTmpfs(desired)
                 || QSet<QString>(observed.networks.cbegin(), observed.networks.cend())
@@ -389,7 +422,8 @@ namespace amnezia
             || !parseTmpfs(container.value(QStringLiteral("tmpfs")), &state.tmpfs)
             || !parseNetworks(container.value(QStringLiteral("networks")), &state.networks)
             || !parsePorts(container.value(QStringLiteral("ports")), &state.ports)
-            || !parseLabels(container.value(QStringLiteral("labels")), &state.deploymentLabels)) {
+            || !parseLabels(container.value(QStringLiteral("labels")), &state.deploymentLabels)
+            || !parseTrustEnvironment(container.value(QStringLiteral("trust_environment")), &state.trustEnvironment)) {
             return failure(AgentWorkloadObservationError::InvalidEnvelope);
         }
         state.running = running.toBool();
@@ -432,6 +466,12 @@ namespace amnezia
         if (managedBy != QString::fromLatin1(ExpectedManager) || workload != desired.workload) {
             return { AgentWorkloadReconciliationAction::Conflict,
                      AgentWorkloadReconciliationReason::ContainerOwnedByOther };
+        }
+        if (desired.backendProfile
+            && (state.deploymentLabels.value(QString::fromLatin1(BackendProfileLabel)) != desired.backendProfile->id
+                || state.trustEnvironment.value(QStringLiteral("AMGPT_AUTH_ISSUER")) != desired.backendProfile->authIssuer)) {
+            return { AgentWorkloadReconciliationAction::Conflict,
+                     AgentWorkloadReconciliationReason::BackendEnvironmentMismatch };
         }
         bool targetOwnsRequestedPort = false;
         for (const auto &owner : state.portOwners) {
@@ -515,6 +555,8 @@ namespace amnezia
             return QStringLiteral("Remote container inspection uses an unsupported schema");
         case AgentWorkloadReconciliationReason::ObservationTargetMismatch:
             return QStringLiteral("Remote container inspection returned a different target");
+        case AgentWorkloadReconciliationReason::BackendEnvironmentMismatch:
+            return QStringLiteral("Installed backend environment or Auth issuer differs; a new installation is required");
         case AgentWorkloadReconciliationReason::ObservationInvalid:
             return QStringLiteral("Remote container inspection returned invalid data");
         }

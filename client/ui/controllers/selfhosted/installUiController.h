@@ -70,6 +70,8 @@ public slots:
     void stopAgentWorkload(const QString &serverId, int containerIndex);
     void startAgentWorkloadLogin(const QString &serverId, int mode);
     void refreshAgentWorkloadLoginStatus(const QString &serverId, int mode);
+    void refreshAgentWorkloadLinks(const QString &serverId);
+    void openAgentWorkloadWebInterface(const QString &serverId);
     bool openAgentWorkloadVerificationUrl(const QString &url);
     void refreshContainerDiagnostics(const QString &serverId, int containerIndex, int port);
     void fetchContainerSecret(const QString &serverId, int containerIndex);
@@ -120,6 +122,8 @@ signals:
                                    const QString &userCode, int expiresInSeconds, const QString &message);
     void agentWorkloadLoginStatusRefreshed(int mode, int state, bool authenticated, int operationError,
                                            const QString &message);
+    void agentWorkloadLinksRefreshed(const QString &serverId, bool available);
+    void agentWorkloadWebInterfaceOpened(const QString &serverId, bool opened, const QString &message);
     void containerDiagnosticsRefreshed(bool portReachable, bool upstreamReachable, int clientsConnected,
                                        const QString &lastConfigRefresh, const QString &statsEndpoint);
     void containerSecretFetched(const QString &secret);
@@ -164,6 +168,8 @@ private:
     ServerCredentials m_processedServerCredentials;
 
     QString m_privateKeyPassphrase;
+
+    void readAgentWorkloadLinks(const QString &serverId, bool openBrowser);
 
     void updateProtocolConfigModel(const QString &serverId, int containerIndex, int protocolIndex);
 
